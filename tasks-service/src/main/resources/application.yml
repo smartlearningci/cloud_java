@@ -1,0 +1,29 @@
+server:
+  port: 8081 # Phase 0 exposes the API directly (no gateway yet)
+  error: # Render more context in error responses (useful for learning)
+    include-message: always
+    include-binding-errors: always
+spring:
+  application:
+    name: tasks-service
+  datasource:
+    # In-memory H2; data is lost when the app stops (great for a clean demo).
+    url: jdbc:h2:mem:tasks;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    driverClassName: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update   # auto-create/update schema in dev; not for prod
+    show-sql: false      # set true to print SQL statements during dev
+  h2: # Optional: expose H2 web console at /h2-console (handy in class)
+    console:
+      enabled: true
+      path: /h2-console
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info # enable /actuator/health for quick checks
+
+
+
+

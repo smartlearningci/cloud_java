@@ -1,0 +1,121 @@
+<!--
+  Phase 0 — TaskFlow tasks-service
+  - Spring Boot 3.5.6 (latest at time of writing)
+  - Java 21
+  - Lombok 1.18.42
+  Key details:
+  * Use Spring Boot BOM to align dependency versions
+  * maven-compiler-plugin:
+      -release 21        → compile for Java 21
+      -parameters true   → Spring MVC can read parameter names (GET/Path variables)
+      Lombok as annotation processor
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>pt.taskflow</groupId>
+  <artifactId>tasks-service</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <name>tasks-service</name>
+
+  <properties>
+    <!-- Java release used by compiler -->
+    <java.version>21</java.version>
+    <!-- Spring Boot platform version (plugin + BOM + starters) -->
+    <spring.boot.version>3.5.6</spring.boot.version>
+    <!-- Lombok version (compile-time only) -->
+    <lombok.version>1.18.42</lombok.version>
+    <!-- Ensure predictable source encoding -->
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <!-- Import Spring Boot Bill of Materials (BOM) so starters share consistent versions -->
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring.boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- REST + Jackson JSON + Spring MVC -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+
+    <!-- Health endpoints (e.g., /actuator/health) -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+
+    <!-- JPA/Hibernate ORM integration -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+
+    <!-- In-memory database for demos; replace with Postgres in later phases -->
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- Lombok: not packaged in runtime; used only during compilation -->
+    <dependency>
+      <groupId>org.projectlombok</groupId>
+      <artifactId>lombok</artifactId>
+      <version>${lombok.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- Test support (JUnit 5, etc.) -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!-- Spring Boot plugin (use same version as Boot itself) -->
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <version>${spring.boot.version}</version>
+      </plugin>
+
+      <!-- Java compiler configuration -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.11.0</version>
+        <configuration>
+          <!-- Compile against Java 21 bytecode -->
+          <release>${java.version}</release>
+          <!-- Expose parameter names to Spring MVC; fixes "Ensure compiler uses -parameters" -->
+          <parameters>true</parameters>
+          <encoding>${project.build.sourceEncoding}</encoding>
+          <!-- Register Lombok as an annotation processor during compilation -->
+          <annotationProcessorPaths>
+            <path>
+              <groupId>org.projectlombok</groupId>
+              <artifactId>lombok</artifactId>
+              <version>${lombok.version}</version>
+            </path>
+          </annotationProcessorPaths>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

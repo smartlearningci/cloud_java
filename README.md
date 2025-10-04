@@ -47,23 +47,47 @@
 
 ---
 
-## 2) Run the service
+## 🔧 Running the service
 
-### Option A — Maven
+You can run the service either **locally with Maven** or **inside Docker**.  
+Both options expose the API on [http://localhost:8081](http://localhost:8081).
+
+### ▶️ Option A — Run locally (requires JDK 21 + Maven)
+
 ```bash
-mvn spring-boot:run
-# Service on http://localhost:8081
+./run_local.sh
 ```
 
-### Option B — Docker (no JDK/Maven needed on host)
-```bash
-docker build -t taskflow/tasks-service:phase0 .
-docker run --rm -p 8081:8081 taskflow/tasks-service:phase0
-```
+This script will:
+- Compile the project (`mvn clean package -DskipTests`)
+- Start the Spring Boot application (`mvn spring-boot:run`)
+- The service becomes available at `http://localhost:8081`
+
+Use this option if you want to **inspect the code and debug in your IDE**.
 
 ---
 
-## 3) Try it (curl)
+### 🐳 Option B — Run with Docker (no JDK/Maven needed on host)
+
+```bash
+./run_docker.sh
+```
+
+This script will:
+- Build a Docker image using the provided `Dockerfile`
+- Run the container exposing port `8081`
+- The service will be available at `http://localhost:8081`
+
+Example test:
+```bash
+curl -s http://localhost:8081/tasks | jq
+```
+
+Use this option if you want a **zero-setup environment** for learners — only Docker is required.
+
+---
+
+## 2) Try it (curl)
 
 ```bash
 # List tasks (includes seeded examples on first boot)
@@ -84,7 +108,7 @@ curl -s http://localhost:8081/actuator/health | jq
 
 ---
 
-## 4) API reference
+## 3) API reference
 
 ### JSON model (Task)
 ```json
@@ -128,7 +152,7 @@ Filters are optional. Examples:
 
 ---
 
-## 5) Troubleshooting
+## 4) Troubleshooting
 
 - **Whitelabel / generic 500** → We provide a **JSON error handler**. Check runtime logs for details.
 - **“Ensure the compiler uses the `-parameters` flag”** → The project’s POM enables this via `maven-compiler-plugin`. Make sure your IDE builds with Maven, or run `mvn clean compile`.
@@ -140,7 +164,7 @@ Filters are optional. Examples:
 
 ---
 
-## 6) What’s next (Phase 1)
+## 5) What’s next (Phase 1)
 
 We’ll add a **Gateway** (Spring Cloud Gateway) in front of this service, route `/api/tasks/** → tasks-service`, optionally enforce an API key, and package both with **Docker Compose**. We’ll tag Git commits by phase so learners can browse versions easily.
 

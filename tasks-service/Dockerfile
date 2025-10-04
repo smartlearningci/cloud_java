@@ -4,11 +4,10 @@ WORKDIR /app
 
 # Copy POM first and pre-fetch dependencies (improves incremental build speed)
 COPY pom.xml .
-RUN mvn -q -DskipTests dependency:go-offline
 
 # Copy sources and build the fat jar
 COPY src ./src
-RUN mvn -q -DskipTests package
+RUN mvn -q -DskipTests clean package
 
 # --- Runtime stage: slim JRE 21 only ---
 FROM eclipse-temurin:21-jre

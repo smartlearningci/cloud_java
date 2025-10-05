@@ -169,3 +169,120 @@ Filters are optional. Examples:
 We’ll add a **Gateway** (Spring Cloud Gateway) in front of this service, route `/api/tasks/** → tasks-service`, optionally enforce an API key, and package both with **Docker Compose**. We’ll tag Git commits by phase so learners can browse versions easily.
 
 ---
+
+
+
+
+## 🧭 Phase 1 — Adding an API Gateway (Evolution, Not Replacement)
+
+In **Phase 0**, the `tasks-service` exposed a REST API directly at  
+`http://localhost:8081/tasks`.
+
+In **Phase 1**, we **introduce a new layer** — a **Spring Cloud Gateway** — that becomes the **single entry point** for all clients.
+
+This makes the evolution explicit:  
+the existing backend remains unchanged and fully functional, but now it’s accessed **through the gateway** (`http://localhost:8080/api/tasks/**`).
+
+---
+
+### 🧱 Architecture at this stage
+```
+Client → Gateway (port 8080) → tasks-service (port 8081)
+```
+
+- The gateway forwards every request from `/api/tasks/**`  
+  to the backend’s `/tasks/**` endpoint.
+- The backend still runs on its own port (8081) and can be accessed directly for comparison.
+- Both services are orchestrated with Docker Compose.
+
+---
+
+### ▶️ How to Run (two options)
+
+#### 🧩 Option A — Run inside Spring Tool Suite (STS)
+1. Launch **`tasks-service`** (as Spring Boot App).  
+   It will start on port 8081.
+2. Launch **`gateway`** (as Spring Boot App).  
+   It will start on port 8080.
+3. Test using the commands below.
+
+#### 🐳 Option B — Run with Docker Compose (recommended)
+From the project root (`cloud_java`):
+
+```bash
+./run_compose.sh
+# or
+docker compose up --build
+```
+
+This builds both images and runs the containers in the same network.
+
+---
+
+### 🔍 How to Test
+
+#### 1️⃣ Access through the Gateway (new entry point, port 8080)
+```bash
+# List all tasks (GET)
+curl -s http://localhost:8080/api/tasks | jq
+
+# Create a new task (POST)
+curl -s -H "Content-Type: application/json"   -d '{"title":"Task via Gateway","description":"demo","projectId":"P1","assignee":"Ana"}'   http://localhost:8080/api/tasks | jq
+
+# Update status of a task (PATCH)
+curl -s -X PATCH -H "Content-Type: application/json"   -d '{"status":"DOING"}'   http://localhost:8080/api/tasks/<TASK_ID>/status | jq
+```
+
+#### 2️⃣ Direct Access (old behaviour still visible, port 8081)
+```bash
+curl -s http://localhost:8081/tasks | jq
+```
+
+> This demonstrates that the old architecture still works —
+> the gateway simply adds a new layer on top.
+
+---
+
+### 🔐 (Optional) Enable API Key Authentication
+You can enable a simple header check for demo purposes:
+
+1. Define the environment variable before starting:
+   ```bash
+   export API_KEY=supersecreto
+   ```
+2. Start Docker Compose (or restart the gateway).
+3. Call the API through the gateway:
+   ```bash
+   curl -s -H "X-API-KEY: supersecreto" http://localhost:8080/api/tasks | jq
+   ```
+
+If the header is missing or invalid, the gateway will reply with **401 Unauthorized**.
+
+---
+
+### 🧩 Health Checks
+Both services expose health endpoints for monitoring:
+- Gateway: [http://localhost:8080/actuator/health](http://localhost:8080/actuator/health)  
+- Tasks-service: [http://localhost:8081/actuator/health](http://localhost:8081/actuator/health)
+
+These are also used by Docker Compose to wait until the backend is ready before the gateway starts routing.
+
+---
+
+### 🧰 What You Learn Here
+- How to add a **gateway layer** on top of an existing backend.  
+- How to **compose multiple services** locally with Docker.  
+- How to keep previous phases intact while revealing the **evolution of complexity**.
+
+---
+
+### ⏭️ Next Steps (preview of Phase 2)
+In the next phase we’ll:
+- Externalize configuration via **Spring Cloud Config Server**.
+- Add **Service Discovery (Eureka)** for dynamic routing (`lb://tasks-service`).
+- Introduce **Resilience4j** for retries and circuit breakers.
+
+---
+
+👉 **Tip:** always test both entry points (8080 and 8081) to reinforce the learning concept —  
+each phase *adds a layer* but *never hides the foundation*.

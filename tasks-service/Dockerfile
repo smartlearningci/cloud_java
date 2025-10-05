@@ -7,7 +7,7 @@ COPY pom.xml .
 
 # Copy sources and build the fat jar
 COPY src ./src
-RUN mvn -q -DskipTests clean package
+RUN mvn -q -DskipTests clean package 
 
 # --- Runtime stage: slim JRE 21 only ---
 FROM eclipse-temurin:21-jre
@@ -23,3 +23,4 @@ EXPOSE 8081
 #   -e JAVA_TOOL_OPTIONS="-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
 #   -p 5005:5005
 ENTRYPOINT ["java","-jar","/app/app.jar"]
+

@@ -1,0 +1,43 @@
+version: "3.9"
+
+services:
+  # Phase-0 service kept intact (we just run it under compose)
+  tasks-service:
+    build: ./tasks-service
+    image: taskflow/tasks-service:phase1
+    container_name: taskflow-tasks
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+    healthcheck:
+      # Actuator health ensures the backend is ready before the gateway starts serving
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 8
+    ports:
+      - "8081:8081"    # Keep direct access to show "before gateway" behavior
+    networks: [taskflow]
+
+  # Phase-1 addition: Edge layer (Gateway)
+  gateway:
+    build: ./gateway
+    image: taskflow/gateway:phase1
+    container_name: taskflow-gateway
+    environment:
+      # OPTIONAL: set to enable simple header auth
+      - API_KEY=${API_KEY:-}
+      - TASKS_BASE_URL=http://tasks-service:8081   # usa DNS interno do Compose
+    depends_on:
+      tasks-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 8
+    ports:
+      - "8080:8080"    # Clients use :8080 → /api/tasks/** (proxied to :8081/tasks/**)
+    networks: [taskflow]
+
+networks:
+  taskflow: {}

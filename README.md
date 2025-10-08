@@ -19,12 +19,12 @@ git fetch --all --tags
 git checkout -b local-phase-2 tags/phase-2
 
 # Docker (recommended for demos)
-chmod +x run_compose_phase2.sh stop_compose_phase2.sh
-./run_compose_phase2.sh
+chmod +x run_compose.sh stop_compose.sh
+./run_compose.sh
 
 # Local (no Docker; Java 21 + Maven)
-chmod +x run_local_phase2.sh
-./run_local_phase2.sh
+chmod +x run_local.sh
+./run_local.sh
 ```
 
 Service URLs:
@@ -47,10 +47,10 @@ cloud_java/
 ├─ discovery/                   # Eureka Server (8761)
 ├─ gateway/                     # Spring Cloud Gateway (8080)
 ├─ tasks-service/               # Tasks API (8081, H2, JPA, Actuator)
-├─ docker-compose.phase2.yml    # Compose (Phase 2)
-├─ run_compose_phase2.sh        # Build & start Docker stack
-├─ stop_compose_phase2.sh       # Stop & clean Docker stack
-└─ run_local_phase2.sh          # Run all with Maven (no Docker)
+├─ docker-compose.yml    # Compose (Phase 2)
+├─ run_compose.sh        # Build & start Docker stack
+├─ stop_compose.sh       # Stop & clean Docker stack
+└─ run_local.sh          # Run all with Maven (no Docker)
 ```
 
 ---
@@ -123,10 +123,10 @@ spring:
 
 ### A) **Docker Compose** (recommended)
 ```bash
-chmod +x run_compose_phase2.sh stop_compose_phase2.sh
-./run_compose_phase2.sh
+chmod +x run_compose.sh stop_compose.sh
+./run_compose.sh
 # stop/clean:
-./stop_compose_phase2.sh
+./stop_compose.sh
 ```
 > Optional: create `.env` from `.env.example` and set `API_KEY=` to require `X-API-KEY` in the gateway.
 

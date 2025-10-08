@@ -1,0 +1,86 @@
+<!-- Parent POM for the whole repository.
+     Centralizes: Spring Boot version, Spring Cloud BOM, Java 21, Actuator & Test starters, plugins.
+     All modules (gateway, tasks-service, and new ones) inherit from this POM. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>pt.taskflow</groupId>
+  <artifactId>cloud-java-parent</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>Cloud Java Parent</name>
+
+  <!-- Inherit Spring Boot parent: manages Boot plugin versions and core defaults -->
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.5.6</version>
+    <relativePath/>
+  </parent>
+
+  <properties>
+    <!-- Java toolchain/bytecode release -->
+    <java.version>21</java.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- Spring Cloud release train compatible with Boot 3.5.x -->
+    <spring-cloud.version>2025.0.0</spring-cloud.version>
+    <!-- Centralize Lombok version so modules can reuse it -->
+    <lombok.version>1.18.42</lombok.version>
+  </properties>
+
+  <!-- Import Spring Cloud BOM once. Children declare Cloud starters with no explicit versions. -->
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-dependencies</artifactId>
+        <version>${spring-cloud.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <!-- Common dependencies for all modules (useful for training: /actuator/health everywhere, test starter available). -->
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <!-- List all modules (existing + new). Add new ones here so 'mvn' builds everything. -->
+  <modules>
+    <module>gateway</module>
+    <module>tasks-service</module>
+    <module>config-server</module>
+    <module>discovery</module>
+  </modules>
+
+  <!-- Shared plugin configuration (compiler etc.). Children inherit these settings. -->
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.11.0</version>
+          <configuration>
+            <release>${java.version}</release>
+            <parameters>true</parameters>
+            <encoding>${project.build.sourceEncoding}</encoding>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>
+

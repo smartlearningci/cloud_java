@@ -1,53 +1,7 @@
-# ────────────────────────────────────────────────
-# Phase 1 — tasks-service application.yml
-# Backend permanece em 8081 (o Gateway fará proxy)
-# ────────────────────────────────────────────────
-
-server:
-  port: 8081
-  error:
-    include-message: always          # Mostra mensagem nos erros (bom para debug/aprendizagem)
-    include-binding-errors: always   # Mostra erros de binding (útil para APIs em aula)
-
+# Minimal bootstrap: tell Spring to import config from Config Server (if available)
 spring:
   application:
     name: tasks-service
-
-  datasource:
-    # H2 em memória (limpo a cada arranque). MODE=PostgreSQL aproxima-se da sintaxe real.
-    url: jdbc:h2:mem:tasks;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
-    driverClassName: org.h2.Driver
-
-  jpa:
-    hibernate:
-      ddl-auto: update     # DEV only: cria/atualiza schema automaticamente
-    show-sql: false        # Podes ativar (true) se quiseres mostrar SQL em aula
-    open-in-view: false    # Boa prática: não manter sessão JPA aberta na camada web
-
-  h2:
-    console:
-      enabled: true        # Ativa /h2-console
-      path: /h2-console
-
-  jackson:
-    serialization:
-      WRITE_DATES_AS_TIMESTAMPS: false   # Usa ISO-8601 em vez de timestamps numéricos
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info   # Expor apenas health e info
-  endpoint:
-    health:
-      show-details: always     # Mostra detalhes no health (bom em DEV)
-      probes:
-        enabled: true          # Ativa /health/liveness e /health/readiness
-  health:
-    livenessstate:
-      enabled: true
-    readinessstate:
-      enabled: true
-
-
-
+  config:
+    # 'optional:' lets the app start even if the Config Server is not up yet (dev convenience)
+    import: optional:configserver:${CONFIG_SERVER_URL:}

@@ -1,0 +1,36 @@
+# Externalized config for 'tasks-service'
+server:
+  port: 8081
+  error:
+    include-message: always
+    include-binding-errors: always
+
+spring:
+  application:
+    name: tasks-service
+  datasource:
+    # In-memory H2; perfect for demos. Data resets on restart.
+    url: jdbc:h2:mem:tasks;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    driverClassName: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update         # ok for dev; do NOT use in prod
+    show-sql: false
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+# Eureka client settings so the service registers at the discovery server
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
+  instance:
+    preferIpAddress: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,env,configprops,loggers,metrics,threaddump,heapdump,httpexchanges

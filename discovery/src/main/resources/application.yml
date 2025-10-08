@@ -1,0 +1,18 @@
+# Eureka server configuration (single-node: don't register to itself)
+server:
+  port: 8761
+
+spring:
+  application:
+    name: discovery
+
+eureka:
+  client:
+    register-with-eureka: false  # a server does not register to another server in this simple setup
+    fetch-registry: false        # and does not try to fetch a registry
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

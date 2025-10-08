@@ -1,0 +1,22 @@
+# Config Server: serves external configuration for other services
+server:
+  port: 8888
+
+spring:
+  application:
+    name: config-server
+  profiles:
+    active: native  # 'native' = load from local filesystem (no Git backend)
+  cloud:
+    config:
+      server:
+        native:
+          # Where the YAML files live during development.
+          # Default points one level up to ../config-repo (override via ENV if needed).
+          search-locations: ${CONFIG_REPO_DIR:../config-repo}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,env,configprops,loggers,metrics,threaddump,heapdump,httpexchanges

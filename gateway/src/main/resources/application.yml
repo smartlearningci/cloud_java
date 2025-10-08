@@ -1,49 +1,6 @@
-# === Gateway runtime port (external clients will hit http://localhost:8080) ===
-server:
-  port: 8080
-
+# Minimal bootstrap: load routes, eureka, API key etc. from the Config Server
 spring:
   application:
-    # Logical name for logs/actuator; also useful later with discovery/metrics.
     name: gateway
-
-  cloud:
-    gateway:
-      server:
-        webflux:
-          # NOTE: This is the NEW, non-deprecated configuration path.
-          # Old keys (spring.cloud.gateway.routes) were mapped temporarily and log warnings.
-
-          # ---- Route table: each entry defines how the gateway forwards requests ----
-          routes:
-            - id: tasks                 # Route identifier (any unique string)
-              # Target service URI the gateway will forward to.
-              # In Docker Compose, "tasks-service" is the DNS name of the container.
-              uri: "${TASKS_BASE_URL:http://localhost:8081}"
-
-              # When does this route apply? Here, for any request whose path starts with /api/tasks
-              predicates:
-                - Path=/api/tasks/**    # Ant-style pattern (** means “any subpath”)
-
-              # What transformations/filters to apply on the request/response pipeline
-              filters:
-                # Strip the first path segment (/api) so the backend still receives /tasks/**
-                - StripPrefix=1
-
-          # ---- Filters automatically applied to ALL routes ----
-          default-filters:
-            # Avoid duplicate CORS headers when upstream also sets them.
-            # This keeps responses clean when browsers perform CORS preflights.
-            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info
-
-# OPTIONAL — enable simple API key auth by setting API_KEY env var (see ApiKeyFilter)
-security:
-  api-key:
-    header: X-API-KEY
-    value: ${API_KEY:}   # empty means "disabled"
+  config:
+    import: optional:configserver:${CONFIG_SERVER_URL:}

@@ -1,0 +1,43 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: tasks
+              uri: lb://tasks-service
+              predicates:
+                - Path=/api/tasks/**
+              filters:
+                - StripPrefix=1
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
+  instance:
+    preferIpAddress: true
+
+app:
+  security:
+    header-name: X-API-KEY
+    api-key: ${API_KEY:}
+
+management:
+  # OPCIONAL mas recomendado em dev: servir actuator noutro porto
+  server:
+    port: 18080
+
+  endpoint:
+    gateway:
+      enabled: true         # por defeito já é true; deixamos explícito
+      # access: read_only   # opção nova em algumas versões; se existir, podes fixar read_only
+  endpoints:
+    web:
+      exposure:
+        include: health,info,env,configprops,loggers,metrics,httpexchanges,gateway

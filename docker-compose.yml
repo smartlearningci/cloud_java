@@ -1,43 +1,48 @@
-version: "3.9"
-
 services:
-  # Phase-0 service kept intact (we just run it under compose)
-  tasks-service:
-    build: ./tasks-service
-    image: taskflow/tasks-service:phase1
-    container_name: taskflow-tasks
+  config-server:
+    build:
+      context: .
+      dockerfile: ./config-server/Dockerfile
     environment:
-      - SPRING_PROFILES_ACTIVE=dev
-    healthcheck:
-      # Actuator health ensures the backend is ready before the gateway starts serving
-      test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 8
+      - CONFIG_REPO_DIR=/config-repo
+    volumes:
+      - ./config-repo:/config-repo:ro
     ports:
-      - "8081:8081"    # Keep direct access to show "before gateway" behavior
-    networks: [taskflow]
+      - "8888:8888"
 
-  # Phase-1 addition: Edge layer (Gateway)
-  gateway:
-    build: ./gateway
-    image: taskflow/gateway:phase1
-    container_name: taskflow-gateway
-    environment:
-      # OPTIONAL: set to enable simple header auth
-      - API_KEY=${API_KEY:-}
-      - TASKS_BASE_URL=http://tasks-service:8081   # usa DNS interno do Compose
+  discovery:
+    build:
+      context: .
+      dockerfile: ./discovery/Dockerfile
+    ports:
+      - "8761:8761"
     depends_on:
-      tasks-service:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 8
-    ports:
-      - "8080:8080"    # Clients use :8080 → /api/tasks/** (proxied to :8081/tasks/**)
-    networks: [taskflow]
+      - config-server
 
-networks:
-  taskflow: {}
+  tasks-service:
+    build:
+      context: .
+      dockerfile: ./tasks-service/Dockerfile
+    environment:
+      - CONFIG_SERVER_URL=http://config-server:8888
+      - EUREKA_URL=http://discovery:8761/eureka
+    ports:
+      - "8081:8081"
+    depends_on:
+      - config-server
+      - discovery
+
+  gateway:
+    build:
+      context: .
+      dockerfile: ./gateway/Dockerfile
+    environment:
+      - CONFIG_SERVER_URL=http://config-server:8888
+      - EUREKA_URL=http://discovery:8761/eureka
+      - API_KEY=${API_KEY}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - tasks-service
+      - discovery
+      - config-server

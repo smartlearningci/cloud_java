@@ -11,26 +11,30 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 
 /**
- * Filtro simples que escreve um log por pedido recebido.
- * Útil para ver a porta local (8081/8082) e confirmar o round-robin do LB.
+ * RequestLoggingFilter (Optional)
+ * ------------------------------
+ * Purpose:
+ *   - Print one INFO log per request with method, URI, local port and user agent.
+ *   - This is *in addition* to the MDC-based pattern; it’s very didactic for learners.
+ *
+ * If you prefer Tomcat access logs or Reactor Netty access logs, you can disable this filter.
  */
 @Component
 public class RequestLoggingFilter extends OncePerRequestFilter {
-  private static final Logger log = LoggerFactory.getLogger(RequestLoggingFilter.class);
+    private static final Logger log = LoggerFactory.getLogger(RequestLoggingFilter.class);
 
-  @Override
-  protected void doFilterInternal(HttpServletRequest request,
-                                  jakarta.servlet.http.HttpServletResponse response,
-                                  FilterChain filterChain)
-      throws ServletException, IOException {
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request,
+            jakarta.servlet.http.HttpServletResponse response,
+            FilterChain chain) throws ServletException, IOException {
 
-    // Exemplo de linha de log -> "REQ GET /tasks port=8081 ua="curl/8.6.0""
-    log.info("REQ {} {} port={} ua=\"{}\"",
-        request.getMethod(),
-        request.getRequestURI(),
-        request.getLocalPort(),
-        request.getHeader("User-Agent"));
+        log.info("REQ {} {} port={} ua=\"{}\"",
+                request.getMethod(),
+                request.getRequestURI(),
+                request.getLocalPort(),
+                request.getHeader("User-Agent"));
 
-    filterChain.doFilter(request, response);
-  }
+        chain.doFilter(request, response);
+    }
 }

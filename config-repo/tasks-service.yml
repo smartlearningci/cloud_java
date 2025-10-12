@@ -75,9 +75,14 @@ demo:
     base-url: ${DEMO_OUTBOUND_BASEURL:http://tasks-service}
 
 # ====== Logging ======
-# Padrão de log na consola com a porta local para veres facilmente 8081/8082
+# Keep your existing config as-is (H2, JPA, Eureka, Actuator, etc.)
+# These are the logging-related bits for MDC + readable console logs.
+
 logging:
+  # Console pattern includes: ISO date, local port, correlation id, logger and message.
   pattern:
-    console: "%clr(%d{HH:mm:ss.SSS}){faint} %clr(${server.port}){blue} %clr(%5p) %clr(${PID:- }){magenta} --- %clr(%-40.40logger{39}){cyan} : %m%n"
+    console: "%clr(%d{ISO8601}){faint} port=%X{localPort} corrId=%X{corrId} %clr(%5p) %clr(${PID:- }){magenta} --- %clr(%-40.40logger{39}){cyan} : %m %clr([%X{path}]){faint}%n"
   level:
-    io.github.resilience4j: INFO
+    root: INFO
+    pt.taskflow: INFO   # ensure your base package logs at INFO
+

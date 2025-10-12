@@ -38,3 +38,11 @@ management:
 app:
   security:
     api-key: ${API_KEY:}
+
+logging:
+  pattern:
+    console: "%clr(%d{ISO8601}){faint} corrId=%X{corrId} %clr(%5p) %clr(${PID:- }){magenta} --- %clr(%-40.40logger{39}){cyan} : %m%n"
+  level:
+    root: INFO
+    pt.taskflow: INFO
+

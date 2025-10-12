@@ -6,23 +6,22 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.reactive.function.client.WebClient;
 
 /**
- * Configuração do WebClient para chamadas HTTP de saída.
+ * Provides a Load-Balanced WebClient.Builder.
  *
- * - @LoadBalanced diz ao Spring Cloud para resolver NOME LÓGICO de serviço
- *   (ex.: http://tasks-service) via Service Discovery (Eureka) e distribuir
- *   as chamadas pelas instâncias disponíveis (client-side load balancing).
- *
- * - Isto permite evitar "localhost:8081" hard-coded. Quando escalar para
- *   2+ instâncias, o código continua igual — o LB trata da distribuição.
+ * Why:
+ * - With @LoadBalanced, you can use logical service names (e.g., "http://tasks-service")
+ *   instead of hard-coded host:port. The Spring Cloud LoadBalancer will pick an instance,
+ *   using service discovery (Eureka) + round-robin by default.
+ * - This means no code change is needed when you scale from 1 to N instances.
  */
 @Configuration
 public class WebClientConfig {
 
     @Bean
-    @LoadBalanced // ativa o Spring Cloud LoadBalancer neste builder
+    @LoadBalanced
     public WebClient.Builder loadBalancedWebClientBuilder() {
-        // Não definimos baseUrl aqui de propósito. O baseUrl é injectado
-        // no OutboundClient a partir de configuração externa (Config Server).
+        // Keep this builder generic; concrete baseUrl will be set in the client class
+        // using externalized configuration (12-Factor: Config).
         return WebClient.builder();
     }
 }

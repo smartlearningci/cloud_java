@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FILE="docker-compose.phase2.yml"
+FILE="docker-compose.yml"
 if [[ ! -f "$FILE" ]]; then
   echo "ERROR: $FILE not found in current directory. Run this from the repo root."
   exit 1

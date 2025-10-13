@@ -1,305 +1,222 @@
-# TaskFlow — Phase 3: Load Balancing, Resilience, and Structured Logging
+# TaskFlow — Phase 3 (Load Balancer, Resilience & Logging)
 
-This phase extends our **TaskFlow microservices** architecture (Gateway + Tasks-Service + Config + Eureka)
-to include **load balancing**, **resilience patterns**, and **structured logging with correlation IDs**.
-It builds on Phase 2 (Config Server & Service Discovery) and brings us closer to real-world cloud‑native robustness.
+## 1. Introduction
+Phase 3 builds upon Phase 2 by introducing **Load Balancing**, **Resilience (Resilience4j)**, and **Structured Logging & Correlation IDs**.  
+This phase demonstrates how a cloud‑native architecture behaves when multiple instances are running behind a Gateway using **Spring Cloud LoadBalancer** and **Eureka**.  
+We also ensure robust observability and error handling.
 
 ---
 
-## 1. Get the Code (Windows & Linux)
-
-### 🧩 Clone the repository
-
+## 2. Getting the Code
+### 🧭 Clone the Repository
 ```bash
-# Clone the main repo
 git clone https://github.com/smartlearningci/cloud_java.git
 cd cloud_java
-
-# Fetch all tags and checkout Phase 3
 git fetch --all --tags
 git checkout -b local-phase-3 tags/phase-3
 ```
 
-> 💡 **Note:** You can verify that the branch is detached from tag `phase-3` by running `git status`.
-
-### 🗂 Project structure
-
+### 🧱 Project Structure
 ```
-cloud_java/
-│
-├── config-server/        → Centralized configuration (Spring Cloud Config)
-├── discovery/            → Eureka service registry
-├── gateway/              → API gateway (Spring Cloud Gateway)
-├── tasks-service/        → Business service (H2 + JPA)
-├── config-repo/          → Externalized configs (gateway.yml, tasks-service.yml, etc.)
-├── docker-compose.yml    → Local Compose orchestration
-└── README_Phase3_FULL.md → This guide
+config-server/
+discovery/
+gateway/
+tasks-service/
+config-repo/
+docker-compose.phase2.yml
+docker-compose.phase3.yml (optional)
 ```
 
 ---
 
-## 2. Architecture Overview
-
+## 3. Architecture Overview (Phase 3)
 ```
-Clients (curl/Postman/Browser)
-           |
-           v
-+-----------------+        pulls config       +-----------------------+
-|   Gateway (8080)|-------------------------->|   Config Server 8888  |
-|  routes /api/*  |                          |  (native -> config-repo)
-+-----------------+                          +-----------------------+
-        |   \                                        ^
-        |    \  lb://tasks-service (via Eureka)      | serves YAML
-        |     \                                      |
-        v      \                                     |
-+----------------------+            registers         |
-|  tasks-service 8081  |------------------------------+
-|  tasks-service 8082  | (second instance)            |
-|  (H2, JPA, Actuator) |           discovers via Eureka
-+----------------------+
-             ^
-             |  UI/API
-      +-----------------+
-      | Eureka 8761     |
-      | (Discovery)     |
-      +-----------------+
+         Clients (curl/Postman)
+                  |
+                  v
+        +-------------------+
+        | Gateway (8080)    |
+        | lb://tasks-service|
+        +---------+---------+
+                  |
+       -----------------------
+       |                     |
++---------------+    +---------------+
+| tasks-service |    | tasks-service |
+| (8081)        |    | (8082)        |
++---------------+    +---------------+
+       ^                     ^
+       |                     |
+  +------------+      +------------+
+  |  Eureka    |      | Config     |
+  |  8761      |      | 8888       |
+  +------------+      +------------+
 ```
 
-### How to run (Linux / macOS)
+---
+
+## 4. Docker & Compose Setup for Phase 3
+
+Phase 3 uses the same base setup as Phase 2 but adds **scaling** and **multi‑instance discovery**.
+
+### 🧩 What Stays the Same
+- Dockerfiles for all modules (config‑server, discovery, gateway, tasks‑service).  
+- Same Config Server and Eureka setup.  
+- Gateway uses `lb://tasks-service` URI.  
+- Resilience4j and logging are code‑only changes.
+
+### 🔁 What Changes in Phase 3
+#### 4.1 Scaling the Task Service
+Instead of duplicating YAML entries, use Docker Compose scaling:
 ```bash
-mvn -q -pl config-server -DskipTests spring-boot:run
-mvn -q -pl discovery     -DskipTests spring-boot:run
-CONFIG_SERVER_URL=http://localhost:8888 EUREKA_URL=http://localhost:8761/eureka mvn -q -pl tasks-service -DskipTests spring-boot:run
-CONFIG_SERVER_URL=http://localhost:8888 EUREKA_URL=http://localhost:8761/eureka mvn -q -pl gateway -DskipTests spring-boot:run
+docker compose -f docker-compose.phase2.yml up --build -d
+docker compose -f docker-compose.phase2.yml up -d --scale tasks-service=2
 ```
 
-### On Windows (PowerShell)
-```powershell
-set CONFIG_SERVER_URL=http://localhost:8888
-set EUREKA_URL=http://localhost:8761/eureka
-mvn -q -pl config-server -DskipTests spring-boot:run
-mvn -q -pl discovery     -DskipTests spring-boot:run
-mvn -q -pl tasks-service -DskipTests spring-boot:run
-mvn -q -pl gateway       -DskipTests spring-boot:run
+#### 4.2 Eureka Inside Docker
+Make sure instances **don’t register with localhost**.  
+Inside containers, use hostnames instead:
+```yaml
+eureka:
+  instance:
+    prefer-ip-address: false
+    instance-id: ${spring.application.name}:${random.value}
 ```
 
-✅ **Windows includes `curl`** by default (PowerShell 5+). All test commands below will work natively.
+#### 4.3 Compose Example (phase3)
+```yaml
+services:
+  config-server:
+    build: ./config-server
+    ports: ["8888:8888"]
 
----
+  discovery:
+    build: ./discovery
+    ports: ["8761:8761"]
+    environment:
+      - CONFIG_SERVER_URL=http://config-server:8888
 
-## 3. Section A — Load Balancing
+  tasks-service:
+    build: ./tasks-service
+    environment:
+      - CONFIG_SERVER_URL=http://config-server:8888
+      - EUREKA_URL=http://discovery:8761/eureka
+    # No external ports needed for replicas
 
-### 🧠 Theory
+  gateway:
+    build: ./gateway
+    ports: ["8080:8080"]
+    environment:
+      - CONFIG_SERVER_URL=http://config-server:8888
+      - EUREKA_URL=http://discovery:8761/eureka
+      - API_KEY=${API_KEY}
+    depends_on:
+      - discovery
+      - tasks-service
+```
 
-A **Load Balancer** distributes requests across multiple instances of a service to improve scalability and fault tolerance.
-
-**Why it matters:**
-- Prevents overload on a single instance.  
-- Increases availability and throughput.  
-- Enables rolling updates and horizontal scaling.  
-
-**Common algorithms:**
-- **Round Robin** — each request goes to the next instance in rotation.  
-- **Random** — selects an instance at random.  
-- **Least Connections** — chooses the instance with the fewest active connections.  
-- **Weighted** — distributes based on instance weights (capacity).  
-
-Spring Cloud integrates a **client-side load balancer** through `Spring Cloud LoadBalancer`, replacing Ribbon.
-
-### ⚙️ Implementation Summary
-
-- Multiple `tasks-service` instances (8081, 8082).  
-- Gateway routes requests using `lb://tasks-service` URI.  
-- Discovery handled via Eureka registry.  
-
-**Main config files:**
-- `config-repo/gateway.yml` — declares `uri: lb://tasks-service`.
-- `config-repo/tasks-service.yml` — defines unique `server.port` for each instance.
-
-### 🧪 Test & Expected Result
-
+#### 4.4 Start and Scale
 ```bash
-curl -i http://localhost:8080/api/tasks
-curl -i http://localhost:8080/api/tasks
-curl -i http://localhost:8080/api/tasks
+docker compose -f docker-compose.phase3.yml up --build -d
+docker compose -f docker-compose.phase3.yml up -d --scale tasks-service=2
 ```
 
-Expected:
-- Responses alternate between `8081` and `8082` in logs → **Round Robin** verified.
+#### 4.5 Test and Observe
+- **Eureka UI:** http://localhost:8761 → shows 2 instances of `TASKS-SERVICE`.
+- **Gateway Round Robin:**
+  ```bash
+  for i in {1..10}; do curl -s http://localhost:8080/api/tasks >/dev/null; done
+  ```
+  Check logs — requests alternate between instances.
 
-### 🧩 12-Factor Mapping
+- **Stop one instance:**
+  ```bash
+  docker compose ps
+  docker compose stop <container_name_of_tasks-service_2>
+  ```
+  Expected: Gateway continues routing to the healthy instance.
 
-| Principle | Implementation |
-|------------|----------------|
-| **Disposability** | Stateless services allow quick start/stop of instances. |
-| **Concurrency** | Scale horizontally by adding more instances. |
-| **Config** | Externalized configuration (per instance). |
+#### ⚠️ Common Pitfalls
+| Issue | Cause | Fix |
+|-------|--------|------|
+| `localhost` in Eureka registry | Container advertises itself as `localhost` | Use `prefer-ip-address: false` |
+| Replicas not reachable | Wrong URLs (use internal Docker hostnames) | Keep URIs like `http://discovery:8761` |
+| LB not working | Gateway URI not using `lb://` | Correct to `lb://tasks-service` |
+| Port conflicts | Mapped multiple replicas | Don’t expose replicas externally |
 
 ---
 
-## 4. Section B — Resilience (Resilience4j)
+## 5. Phase 3A — Load Balancer
+Explains Round Robin, Weighted and Random strategies.  
+Spring Cloud LoadBalancer defaults to Round Robin.
 
-### 🧠 Theory
-
-**Resilience patterns** protect services from cascading failures.  
-Implemented using [Resilience4j](https://resilience4j.readme.io).
-
-Core patterns:
-1. **Timeouts** — avoid hanging threads when a dependency is slow.  
-2. **Retries** — retry failed calls a few times before giving up.  
-3. **Circuit Breaker** — opens the circuit after repeated failures, preventing overload.  
-
-**Circuit Breaker states:**
-```
-[Closed] → normal traffic
-  | failures >
-[Open] → short-circuits requests
-  | after wait period
-[Half-Open] → test if service recovered → back to Closed if OK
-```
-
-### ⚙️ Implementation Summary
-
-- Added `TaskServiceCommand` wrapper for outbound calls with `@CircuitBreaker`, `@Retry`, and `@TimeLimiter`.  
-- Configured in `application.yml` under `resilience4j.*`.  
-- Uses `fallback()` methods for controlled degradation.  
-
-### 🧪 Test & Expected Result
-
-**Simulate failure:**
-```bash
-# Stop one instance (e.g., 8081)
-curl -i http://localhost:8080/api/tasks
-```
-
-Expected:
-- Circuit opens after repeated failures (`logs: CircuitBreaker[taskService] -> OPEN`).
-- Requests return `503` instead of hanging.  
-
-### 🧩 12-Factor Mapping
-
-| Principle | Implementation |
-|------------|----------------|
-| **Dev/Prod parity** | Same config patterns across envs. |
-| **Disposability** | Services degrade gracefully instead of failing. |
-| **Telemetry** | Built-in metrics for health and latency. |
+Expected results:
+- Two instances alternate requests.
+- Logs show different instance ports (8081 / 8082).
 
 ---
 
-## 5. Section C — Structured Logging & Correlation IDs
+## 6. Phase 3B — Resilience (Resilience4j)
+Implements timeout, retry and circuit breaker patterns.
 
-### 🧠 Theory
-
-Logging is the nervous system of distributed systems.
-
-**Challenges in microservices:**
-- One user action may trigger many service calls.  
-- Tracing without correlation is hard.  
-
-**Solution:** use a **Correlation ID** per request and propagate it across services.
-
-We achieve this via:
-- `MDC` (Mapped Diagnostic Context) → stores correlationId in the logging context.  
-- A custom `CorrelationGlobalFilter` in Gateway injects/propagates the ID.  
-- `LoggingConfig` defines structured log format.
-
-### ⚙️ Implementation Summary
-
-Key classes:
-- `CorrelationGlobalFilter` → adds header `X-Correlation-Id`, logs inbound/outbound.  
-- `LoggingConfig` → defines console pattern (timestamp, corrId, level, message).  
-
-**Log format:**
-```
-2025-10-12 23:39:20,702 corrId=42a24c41-24dc-4935-9ecd-541cd6d49ea0 INFO --- GW IN GET /api/tasks
-2025-10-12 23:39:20,880 corrId=42a24c41-24dc-4935-9ecd-541cd6d49ea0 INFO --- GW OUT status=200 OK
-```
-
-### 🧪 Test & Expected Result
-
-```bash
-curl -i http://localhost:8080/api/tasks
-```
-
-Expected:
-- Same `corrId` appears in all logs through Gateway → trace end-to-end request flow.
-
-### 🧩 12-Factor Mapping
-
-| Principle | Implementation |
-|------------|----------------|
-| **Logs** | Structured, contextual logs (machine-parsable). |
-| **Telemetry** | Correlation improves observability. |
-| **Disposability** | Logs detached from runtime (stdout). |
+Expected results:
+- Temporary service failure triggers retries.
+- Circuit breaker opens after repeated failures.
+- Actuator shows breaker states.
 
 ---
 
-## 6. Full Test Suite (curl examples)
+## 7. Phase 3C — Structured Logging & Correlation
+Adds correlation IDs (MDC) for request tracing.
+
+Expected results:
+- Each request in Gateway and Tasks logs shares same `corrId`.
+- Errors logged with context.
+
+---
+
+## 8. Tests (Windows & Linux)
+Windows 10+ supports curl natively.
 
 ### Health checks
 ```bash
-curl -s http://localhost:8888/actuator/health
+curl -s http://localhost:8088/actuator/health
 curl -s http://localhost:8761/actuator/health
-curl -s http://localhost:8081/actuator/health
 curl -s http://localhost:8080/actuator/health
 ```
 
-### Config visibility
+### Create and list tasks
 ```bash
-curl -s http://localhost:8888/tasks-service/default | jq .
-curl -s http://localhost:8888/gateway/default | jq .
-```
-
-### Gateway routing & LB
-```bash
-for i in {1..6}; do curl -s http://localhost:8080/api/tasks | jq '.[] | .id'; done
-```
-
-Expected: requests alternate between both instances.
-
-### Circuit breaker demo
-```bash
-# Stop tasks-service:8081
+curl -i -H "Content-Type: application/json" -d '{"title":"Phase 3 Test"}' http://localhost:8080/api/tasks
 curl -i http://localhost:8080/api/tasks
 ```
 
-Expected: 503 errors → circuit opens.
-
-### Correlation log trace
-```bash
-curl -i http://localhost:8080/api/tasks
-```
-
-Expected: same corrId in Gateway logs.
+Expected: alternating instance responses, health “UP”.
 
 ---
 
-## 7. 12-Factor Summary Table
-
-| Principle | Implementation in Phase 3 |
-|------------|----------------------------|
-| **Codebase** | Shared repo with tagged versions per phase |
-| **Dependencies** | Managed via Maven |
-| **Config** | Centralized in Config Server |
-| **Backing services** | H2 database, externalized |
-| **Build, release, run** | Deterministic via Compose & Maven |
-| **Processes** | Stateless microservices |
-| **Port binding** | Each service on own port |
-| **Concurrency** | Horizontal scaling via multiple instances |
-| **Disposability** | Graceful shutdown, resilience patterns |
-| **Dev/Prod parity** | Config profiles (native vs Git) |
-| **Logs** | Structured, correlation-aware |
-| **Admin processes** | Managed via Actuator endpoints |
-
----
-
-## 8. Next Steps — Phase 4 Preview
-
-- 🔐 **Security** — API keys, OAuth2, JWT propagation  
-- 📈 **Observability** — Prometheus, Grafana dashboards  
-- 🚀 **CI/CD** — automated build/test/deploy pipelines
+## 9. 12‑Factor Mapping (Phase 3)
+| Principle | How it’s applied |
+|------------|------------------|
+| Codebase | One repo, tagged by phase |
+| Dependencies | Managed via Maven per service |
+| Config | Externalized via Config Server |
+| Backing services | DB & Discovery treated as attached resources |
+| Build, release, run | Immutable Docker images |
+| Processes | Stateless services |
+| Port binding | Each service exposes its own port |
+| Concurrency | Achieved via scaling (Compose `--scale`) |
+| Disposability | Fast startup/shutdown (H2, Eureka auto-reconnect) |
+| Dev/prod parity | Same code runs locally and in Compose |
+| Logs | Structured logs w/ correlation ID |
+| Admin processes | Observability via Actuator |
 
 ---
 
-**Smart Learning — Cloud‑Native Dev Training 2025**  
-_Module III — Phase 3: Load Balancing, Resilience & Logging_
+## 10. Next Steps — Phase 4
+Phase 4 will introduce:  
+- IAM & JWT authentication;  
+- Metrics (Prometheus + Grafana);  
+- CI/CD pipelines (GitHub Actions);  
+- TLS hardening and secrets management.
+

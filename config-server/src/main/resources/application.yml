@@ -10,11 +10,12 @@ spring:
   cloud:
     config:
       server:
-        native:
-          # Where the YAML files live during development.
-          # Default points one level up to ../config-repo (override via ENV if needed).
-          search-locations: ${CONFIG_REPO_DIR:../config-repo}
-
+        git:
+          uri: https://github.com/smartlearningci/cloud_java
+          searchPaths: config-repo
+          default-label: main
+          clone-on-start: true
+          force-pull: true
 management:
   endpoints:
     web:

@@ -35,7 +35,7 @@ eureka:
     # Mantemos a preferência por IP (equivalente ao teu preferIpAddress:true)
     #prefer-ip-address: true
     # ID único por instância (útil quando arrancas 8081/8082 para veres LB)
-    instance-id: ${spring.application.name}:${server.port:${random.value}}
+    instance-id: ${spring.application.name}:${server.port:${random.value}}:${random.uuid}
 
 # Actuator endpoints (mantém a tua lista extensa)
 management:

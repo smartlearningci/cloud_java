@@ -65,7 +65,6 @@ services:
     build:
       context: .
       dockerfile: tasks-service/Dockerfile
-    container_name: tasks-service
     depends_on:
       discovery:
         condition: service_healthy

@@ -1,12 +1,22 @@
-# syntax=docker/dockerfile:1
-FROM maven:3.9-eclipse-temurin-21 AS build
-WORKDIR /workspace
-COPY . .
-RUN mvn -q -DskipTests -pl gateway -am package
+# syntax=docker/dockerfile:1.6
 
-FROM eclipse-temurin:21-jre
-WORKDIR /app
-COPY --from=build /workspace/gateway/target/*.jar /app/app.jar
+FROM maven:3.9-eclipse-temurin-21-alpine AS build
+WORKDIR /workspace
+
+COPY pom.xml ./
+COPY discovery/pom.xml discovery/pom.xml
+COPY config-server/pom.xml config-server/pom.xml
+COPY gateway/pom.xml gateway/pom.xml
+COPY tasks-service/pom.xml tasks-service/pom.xml
+
+COPY gateway/src gateway/src
+
+RUN mvn -q -DskipTests -pl gateway -am clean package
+
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /opt/app
+RUN addgroup -S spring && adduser -S spring -G spring
+COPY --from=build /workspace/gateway/target/*-exec.jar app.jar
 EXPOSE 8080
-ENV JAVA_OPTS=""
-ENTRYPOINT ["sh","-c","java $JAVA_OPTS -jar /app/app.jar"]
+USER spring
+ENTRYPOINT ["java","-XX:MaxRAMPercentage=75.0","-jar","/opt/app/app.jar"]

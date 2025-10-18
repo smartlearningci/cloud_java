@@ -1,48 +1,91 @@
-services:
-  config-server:
-    build:
-      context: .
-      dockerfile: ./config-server/Dockerfile
-    environment:
-      - CONFIG_REPO_DIR=/config-repo
-    volumes:
-      - ./config-repo:/config-repo:ro
-    ports:
-      - "8888:8888"
+version: "3.9"
+name: cloud-java
 
+services:
   discovery:
     build:
       context: .
-      dockerfile: ./discovery/Dockerfile
+      dockerfile: discovery/Dockerfile
+    container_name: discovery
     ports:
       - "8761:8761"
-    depends_on:
-      - config-server
+    environment:
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-docker}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://discovery:8761/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
-  tasks-service:
+  config-server:
     build:
       context: .
-      dockerfile: ./tasks-service/Dockerfile
-    environment:
-      - CONFIG_SERVER_URL=http://config-server:8888
-      - EUREKA_URL=http://discovery:8761/eureka
-    ports:
-      - "8081:8081"
+      dockerfile: config-server/Dockerfile
+    container_name: config-server
     depends_on:
-      - config-server
-      - discovery
+      discovery:
+        condition: service_healthy
+    ports:
+      - "8888:8888"
+    environment:
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=${EUREKA_URL:-http://discovery:8761/eureka}
+      - SPRING_CLOUD_CONFIG_SERVER_GIT_URI=${CONFIG_GIT_URI:-https://github.com/smartlearningci/cloud_java}
+      - SPRING_CLOUD_CONFIG_SERVER_GIT_DEFAULT_LABEL=${CONFIG_GIT_LABEL:-main}
+      - SPRING_CLOUD_CONFIG_SERVER_GIT_SEARCH_PATHS=${CONFIG_GIT_PATHS:-config-repo}
+      - SPRING_CLOUD_CONFIG_SERVER_GIT_CLONE_ON_START=${CONFIG_GIT_CLONE_ON_START:-true}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8888/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
   gateway:
     build:
       context: .
-      dockerfile: ./gateway/Dockerfile
-    environment:
-      - CONFIG_SERVER_URL=http://config-server:8888
-      - EUREKA_URL=http://discovery:8761/eureka
-      - API_KEY=${API_KEY}
-    ports:
-      - "8080:8080"
+      dockerfile: gateway/Dockerfile
+    container_name: gateway
     depends_on:
-      - tasks-service
-      - discovery
-      - config-server
+      discovery:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_PORT}:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-docker}
+      - SPRING_CLOUD_CONFIG_URI=${CONFIG_SERVER_URL:-http://config-server:8888}
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=${EUREKA_URL:-http://discovery:8761/eureka}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://gateway:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  tasks-service:
+    build:
+      context: .
+      dockerfile: tasks-service/Dockerfile
+    container_name: tasks-service
+    depends_on:
+      discovery:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    ports:
+      - "${TASKS_PORT}:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-docker}
+      - SPRING_CLOUD_CONFIG_URI=${CONFIG_SERVER_URL:-http://config-server:8888}
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=${EUREKA_URL:-http://discovery:8761/eureka}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://gateway:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+networks:
+  default:
+    name: cloud-net
+

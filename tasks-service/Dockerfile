@@ -9,14 +9,15 @@ COPY config-server/pom.xml config-server/pom.xml
 COPY gateway/pom.xml gateway/pom.xml
 COPY tasks-service/pom.xml tasks-service/pom.xml
 
-COPY config-server/src config-server/src
+COPY tasks-service/src tasks-service/src
 
-RUN  mvn -q -DskipTests -pl config-server -am clean package
+RUN  mvn -q -DskipTests -pl tasks-service -am clean package
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /opt/app
 RUN addgroup -S spring && adduser -S spring -G spring
-COPY --from=build /workspace/config-server/target/*-exec.jar app.jar
-EXPOSE 8888
+COPY --from=build /workspace/tasks-service/target/*-exec.jar app.jar
+EXPOSE 8080
 USER spring
 ENTRYPOINT ["java","-XX:MaxRAMPercentage=75.0","-jar","/opt/app/app.jar"]
+

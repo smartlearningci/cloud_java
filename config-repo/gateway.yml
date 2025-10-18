@@ -22,6 +22,16 @@ spring:
               filters:
                 - StripPrefix=1
 
+# Eureka client settings so the service registers at the discovery server
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://eureka:8761/eureka}
+    instance:
+    # Mantemos a preferência por IP (equivalente ao teu preferIpAddress:true)
+    #prefer-ip-address: true
+    # ID único por instância (útil quando arrancas 8081/8082 para veres LB)
+      instance-id: ${spring.application.name}:${server.port:${random.value}}
 management:
   endpoints:
     web:

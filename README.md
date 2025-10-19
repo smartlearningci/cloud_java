@@ -1,11 +1,5 @@
 # README – Phase 4: Containerization and Local Orchestration
 
-**Training No.10/2025 – Cloud Native with Java EE**  
-Training Area: 481 – Computer Science  
-Total Hours: 16  
-Modality: Online (Microsoft Teams)
-
----
 
 ### 🎯 Objective of Phase 4
 
@@ -126,13 +120,13 @@ Each instance has a unique hostname (container ID).
 The **gateway** is the only public entry point. To check load balancing:
 
 ```bash
-curl http://localhost:8080/api/tasks/whoami
+curl http://localhost:8080/api/whoami
 ```
 
 Repeat several times:
 
 ```bash
-for i in {1..6}; do curl -s http://localhost:8080/api/tasks/whoami; echo; done
+for i in {1..6}; do curl -s http://localhost:8080/api/whoami; echo; done
 ```
 
 Expected output:
@@ -164,7 +158,7 @@ Expected: configuration data loaded from GitHub (`config-repo/tasks-service.yml`
 | Discovery                   | `http://localhost:8761/actuator/health`  | `{"status":"UP"}`   |
 | Config Server               | `http://localhost:8888/actuator/health`  | `{"status":"UP"}`   |
 | Gateway                     | `http://localhost:8080/actuator/health`  | `{"status":"UP"}`   |
-| Tasks-Service (via Gateway) | `http://localhost:8080/api/tasks/whoami` | Valid JSON response |
+| Tasks-Service (via Gateway) | `http://localhost:8080/api/whoami` | Valid JSON response |
 
 ---
 
@@ -186,7 +180,7 @@ Expected: configuration data loaded from GitHub (`config-repo/tasks-service.yml`
 
    ```bash
    curl http://localhost:8080/api/tasks
-   curl http://localhost:8080/api/tasks/whoami
+   curl http://localhost:8080/api/whoami
    ```
 
 4. **Monitor logs**

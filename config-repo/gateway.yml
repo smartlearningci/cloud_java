@@ -28,6 +28,14 @@ spring:
               filters:
                 - StripPrefix=1
 
+            # NOVA rota: expõe os endpoints de whoami via Gateway (/api/whoami/**)
+            - id: diagnostics
+              uri: lb://tasks-service
+              predicates:
+                - Path=/api/whoami/**
+              filters:
+                - StripPrefix=1
+
 # Eureka client settings so the service registers at the discovery server
 eureka:
   client:

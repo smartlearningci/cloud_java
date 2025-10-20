@@ -6,15 +6,9 @@ spring:
     password:
   jpa:
     hibernate:
-      ddl-auto: none
+      ddl-auto: update
     properties:
       hibernate.dialect: org.hibernate.dialect.H2Dialect
-  h2:
-    console:
-      enabled: true
-      path: /h2-console
   sql:
     init:
-      mode: always
-      schema-locations: classpath:schema-h2.sql   # <— usa o schema compatível com H2
-      data-locations: classpath:data.sql
+      mode: never

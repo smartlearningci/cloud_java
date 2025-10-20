@@ -1,7 +1,6 @@
 # ==============================================================
-# Externalized config for 'tasks-service'  (Phase-2 + add-on)
-# Preserva as TUAS definições originais e acrescenta Resilience4j
-# e melhorias para descoberta/balanceamento e logging.
+# Externalized config for 'tasks-service' — Common defaults
+# (Mantém Resilience4j, Eureka, Actuator, Logging, etc.)
 # ==============================================================
 
 server:
@@ -13,43 +12,30 @@ server:
 spring:
   application:
     name: tasks-service
-  datasource:
-    # In-memory H2; perfect for demos. Data resets on restart.
-    url: jdbc:h2:mem:tasks;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
-    driver-class-name: org.h2.Driver
   jpa:
-    hibernate:
-      ddl-auto: update         # ok for dev; do NOT use in prod
     show-sql: false
-  h2:
-    console:
-      enabled: true
-      path: /h2-console
 
-# Eureka client settings so the service registers at the discovery server
+# Eureka client: regista no discovery
 eureka:
   client:
     service-url:
       defaultZone: ${EUREKA_URL:http://eureka:8761/eureka}
   instance:
-    # Mantemos a preferência por IP (equivalente ao teu preferIpAddress:true)
-    #prefer-ip-address: true
-    # ID único por instância (útil quando arrancas 8081/8082 para veres LB)
+    # ID único por instância (escala horizontal)
     instance-id: ${spring.application.name}:${server.port:${random.value}}:${random.uuid}
 
-# Actuator endpoints (mantém a tua lista extensa)
+# Actuator endpoints expostos
 management:
   endpoints:
     web:
       exposure:
         include: health,info,env,configprops,loggers,metrics,threaddump,heapdump,httpexchanges
 
-# ====== Add-on: Resilience4j (timeouts, retries, circuit breaker) ======
+# Resilience4j (timeouts, retry, circuit breaker)
 resilience4j:
   timelimiter:
     instances:
       externalClient:
-        # Timeout total por chamada (didático para demo)
         timeout-duration: 1s
   retry:
     instances:
@@ -68,21 +54,15 @@ resilience4j:
         wait-duration-in-open-state: 5s
         permitted-number-of-calls-in-half-open-state: 2
 
-# Base URL da chamada "externa" (demo). Por omissão usa o nome lógico do próprio serviço,
-# o que ativa Discovery + LoadBalancer (round-robin se houver 2+ instâncias).
+# Base URL demo (load-balancing via discovery)
 demo:
   outbound:
     base-url: ${DEMO_OUTBOUND_BASEURL:http://tasks-service}
 
-# ====== Logging ======
-# Keep your existing config as-is (H2, JPA, Eureka, Actuator, etc.)
-# These are the logging-related bits for MDC + readable console logs.
-
+# Logging (inclui correlation-id e porta)
 logging:
-  # Console pattern includes: ISO date, local port, correlation id, logger and message.
   pattern:
     console: "%clr(%d{ISO8601}){faint} port=%X{localPort} corrId=%X{corrId} %clr(%5p) %clr(${PID:- }){magenta} --- %clr(%-40.40logger{39}){cyan} : %m %clr([%X{path}]){faint}%n"
   level:
     root: INFO
-    pt.taskflow: INFO   # ensure your base package logs at INFO
-
+    pt.taskflow: INFO

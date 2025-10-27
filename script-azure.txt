@@ -1,0 +1,145 @@
+# Regista os providers usados neste guião
+for NS in Microsoft.ContainerRegistry Microsoft.App Microsoft.OperationalInsights Microsoft.DBforPostgreSQL; do
+  az provider register --namespace $NS
+done
+
+# Esperar até ficarem Registered (pode demorar ~1-3 min)
+echo "A aguardar providers ficarem Registered..."
+for NS in Microsoft.ContainerRegistry Microsoft.App Microsoft.OperationalInsights Microsoft.DBforPostgreSQL; do
+  while true; do
+    STATE=$(az provider show --namespace $NS --query "registrationState" -o tsv)
+    echo "$NS => $STATE"
+    [ "$STATE" = "Registered" ] && break
+    sleep 5
+  done
+done
+
+
+az group create --name phase6 --location northeurope
+
+az monitor log-analytics workspace create \
+  --resource-group phase6 \
+  --workspace-name workspace-phase6 \
+  --location northeurope
+
+az containerapp env create \
+  --name managedEnvironment-phase6 \
+  --resource-group phase6 \
+  --location northeurope \
+  --logs-workspace-id "$(az monitor log-analytics workspace show -g phase6 -n workspace-phase6 --query customerId -o tsv)" \
+  --logs-workspace-key "$(az monitor log-analytics workspace get-shared-keys -g phase6 -n workspace-phase6 --query primarySharedKey -o tsv)"
+
+echo "ENV DOMAIN:"
+az containerapp env show -g phase6 -n managedEnvironment-phase6 --query properties.defaultDomain -o tsv
+
+
+# Verifica disponibilidade do nome "phase6acr"
+az acr check-name --name phase6acr -o table
+
+az acr create --resource-group phase6 --name phase6acr --sku Standard --admin-enabled true
+
+
+# 1) Faz login no ACR (se ainda não)
+az acr login --name phase6acr
+
+az acr show -n phase6acr --query "{loginServer:loginServer, sku:sku.name, admin:adminUserEnabled}" -o table
+az acr check-health -n phase6acr --yes
+
+# 2) Build + push de cada serviço
+# CONFIG SERVER
+docker build -f ./config-server/Dockerfile -t phase6acr.azurecr.io/cloud-java-configserver:latest .
+docker push phase6acr.azurecr.io/cloud-java-configserver:latest
+
+# DISCOVERY (Eureka)
+docker build -f ./discovery/Dockerfile -t phase6acr.azurecr.io/cloud-java-discovery:latest .
+docker push phase6acr.azurecr.io/cloud-java-discovery:latest
+
+# TASKS SERVICE
+docker build -f ./tasks-service/Dockerfile -t phase6acr.azurecr.io/cloud-java-tasksservice:latest .
+docker push phase6acr.azurecr.io/cloud-java-tasksservice:latest
+
+# GATEWAY
+docker build -f ./gateway/Dockerfile -t phase6acr.azurecr.io/cloud-java-gateway:latest .
+docker push phase6acr.azurecr.io/cloud-java-gateway:latest
+
+az postgres flexible-server create \
+  --resource-group phase6 \
+  --name pgtasksphase6 \
+  --location northeurope \
+  --tier Burstable --sku-name standard_b1ms --storage-size 32 \
+  --version 16 \
+  --zone 1 \
+  --backup-retention 7 \
+  --geo-redundant-backup Disabled \
+  --storage-auto-grow Disabled \
+  --public-access 0.0.0.0-255.255.255.255 \
+  --admin-user phase6admin \
+  --admin-password 'Phase6!Pass123'
+
+az postgres flexible-server db create \
+  --resource-group phase6 \
+  --server-name pgtasksphase6 \
+  --database-name tasksdb
+
+az containerapp create \
+  --resource-group phase6 \
+  --name config-server \
+  --environment managedEnvironment-phase6 \
+  --image phase6acr.azurecr.io/cloud-java-configserver:latest \
+  --ingress internal --target-port 8888 \
+  --cpu 0.5 --memory 1Gi \
+  --registry-server phase6acr.azurecr.io \
+  --registry-username "$(az acr credential show -n phase6acr --query username -o tsv)" \
+  --registry-password "$(az acr credential show -n phase6acr --query passwords[0].value -o tsv)"
+
+
+az containerapp create \
+  --resource-group phase6 \
+  --name discovery \
+  --environment managedEnvironment-phase6 \
+  --image phase6acr.azurecr.io/cloud-java-discovery:latest \
+  --ingress internal --target-port 8761 \
+  --cpu 0.5 --memory 1Gi \
+  --registry-server phase6acr.azurecr.io \
+  --registry-username "$(az acr credential show -n phase6acr --query username -o tsv)" \
+  --registry-password "$(az acr credential show -n phase6acr --query passwords[0].value -o tsv)" \
+  --env-vars \
+    SPRING_PROFILES_ACTIVE=docker
+
+az containerapp create \
+  --resource-group phase6 \
+  --name tasks-service \
+  --environment managedEnvironment-phase6 \
+  --image phase6acr.azurecr.io/cloud-java-tasksservice:latest \
+  --ingress internal --target-port 8081 \
+  --cpu 0.5 --memory 1Gi \
+  --registry-server phase6acr.azurecr.io \
+  --registry-username "$(az acr credential show -n phase6acr --query username -o tsv)" \
+  --registry-password "$(az acr credential show -n phase6acr --query passwords[0].value -o tsv)" \
+  --env-vars \
+    SPRING_PROFILES_ACTIVE=docker \
+    SPRING_CLOUD_CONFIG_URI="http://config-server.internal.$(az containerapp env show -g phase6 -n managedEnvironment-phase6 --query properties.defaultDomain -o tsv)" \
+    EUREKA_CLIENT_SERVICEURL_DEFAULTZONE="http://discovery.internal.$(az containerapp env show -g phase6 -n managedEnvironment-phase6 --query properties.defaultDomain -o tsv)/eureka" \
+    EUREKA_INSTANCE_PREFER_IP_ADDRESS=true \
+    SPRING_DATASOURCE_URL="jdbc:postgresql://pgtasksphase6.postgres.database.azure.com:5432/postgres?user=phase6admin&password=Phase6!Pass123&sslmode=require" \
+    
+az containerapp create \
+  --resource-group phase6 \
+  --name gateway \
+  --environment managedEnvironment-phase6 \
+  --image phase6acr.azurecr.io/cloud-java-gateway:latest \
+  --ingress external --target-port 8080 \
+  --cpu 0.5 --memory 1Gi \
+  --registry-server phase6acr.azurecr.io \
+  --registry-username "$(az acr credential show -n phase6acr --query username -o tsv)" \
+  --registry-password "$(az acr credential show -n phase6acr --query passwords[0].value -o tsv)" \
+  --env-vars \
+    SPRING_PROFILES_ACTIVE=docker \
+    SPRING_CLOUD_CONFIG_URI="http://config-server.internal.$(az containerapp env show -g phase6 -n managedEnvironment-phase6 --query properties.defaultDomain -o tsv)" \
+    EUREKA_CLIENT_SERVICEURL_DEFAULTZONE="http://discovery.internal.$(az containerapp env show -g phase6 -n managedEnvironment-phase6 --query properties.defaultDomain -o tsv)/eureka" \
+    EUREKA_INSTANCE_PREFER_IP_ADDRESS=true 
+
+
+
+
+

@@ -1,243 +1,195 @@
-# 📓 Phase 5: Transition from H2 to PostgreSQL
+# ☁️ Cloud Java — Phase 6 (Azure Deployment)
 
-## 🎯 Objective
+## 📘 Context
 
-In Phase 5, we replace the in-memory database (H2) used for development and demo purposes with a persistent PostgreSQL database for production and containerized environments.
-This transition ensures data durability, real-world compatibility, and alignment with the 12-Factor App principles regarding config management, dev/prod parity, and backing services.
+In this phase, the **Cloud Java** project transitions from a **local infrastructure (Phase 5)** to a **fully managed infrastructure in Microsoft Azure**.
 
-We will:
+The goal is to reproduce the same microservices ecosystem (`config-server`, `discovery`, `tasks-service`, and `gateway`), now with:
+- **Azure Container Apps** instead of local Docker containers;
+- **Azure Container Registry (ACR)** as the image repository;
+- **PostgreSQL Flexible Server** as a managed database service;
+- **Log Analytics** and **Managed Environment** for integrated monitoring.
 
-- Understand why we move from **H2 → PostgreSQL**
-- Explore **Spring Profiles** (`dev`, `docker`)
-- Review configuration changes (`application.yml`, `tasks-service-dev.yml` / `tasks-service.yml`)
-- Examine SQL scripts (`schema.sql`, `schema-h2.sql`, `data.sql`)
-- Test the integration locally and in Docker Compose
-
----
-
-## 🧩 1. Why Move from H2 to PostgreSQL?
-
-| Aspect      | H2 (In-Memory)                       | PostgreSQL (Persistent)                  |
-|-------------|--------------------------------------|------------------------------------------|
-| Storage     | Memory only (resets on restart)      | Disk-based, durable                      |
-| Performance | Extremely fast, small                | Slightly slower but production-grade     |
-| SQL Dialect | Close to ANSI, limited features      | Full SQL, JSON, functions, indexing      |
-| Persistence | Ephemeral                            | Persistent across restarts               |
-| Usage       | Ideal for dev/testing                | Ideal for production and staging         |
-
-### ⚙️ Key Motivation
-
-- Realistic production behavior (DDL, constraints, transactions)  
-- Compatible with cloud environments (AWS RDS, Azure PostgreSQL, etc.)  
-- Ensures schema consistency between Docker and Kubernetes deployments  
-- Enables complex queries and performance monitoring
+This results in a lightweight, scalable production environment with automatic networking and logging management — maintaining the same functional architecture used locally.
 
 ---
 
-## 🧱 2. Multi-Environment Strategy (Spring Profiles)
+## ⚙️ Prerequisites
 
-Spring Boot supports environment-specific configurations via profiles.  
-In Phase 5 we maintain two primary profiles:
+Before running this script, make sure you have:
 
-| Profile | Purpose | Database | Source of config |
-|---|---|---|---|
-| `dev` | Local testing and development | H2 (in-memory) | `tasks-service-dev.yml` |
-| `docker` | Production-like environment with persistence | PostgreSQL | `config-repo/tasks-service.yml` via Config Server |
-
----
-
-## ⚙️ 3. Configuration Files Overview
-
-### 🔹 `application.yml` (shared)
-```yaml
-spring:
-  application:
-    name: tasks-service
-
-eureka:
-  client:
-    service-url:
-      defaultZone: ${EUREKA_URL:http://eureka:8761/eureka}
-  instance:
-    instance-id: ${spring.application.name}:${server.port:${random.value}}:${random.uuid}
-
-spring:
-  profiles:
-    active: docker  # Default when running in containers
-```
-
-### 🔹 `tasks-service-dev.yml` (local development)
-```yaml
-spring:
-  datasource:
-    url: jdbc:h2:mem:tasksdb;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
-  jpa:
-    hibernate:
-      ddl-auto: none
-    properties:
-      hibernate.dialect: org.hibernate.dialect.H2Dialect
-  sql:
-    init:
-      mode: always
-      schema-locations: classpath:schema-h2.sql
-      data-locations: classpath:data.sql
-  h2:
-    console:
-      enabled: true
-      path: /h2-console
-```
-
-> 🧠 This profile allows quick local testing without PostgreSQL. Developers can use STS/IntelliJ to run the service instantly.
-
-### 🔹 `tasks-service.yml` (Docker / Production)
-```yaml
-spring:
-  datasource:
-    url: jdbc:postgresql://postgres:5432/tasksdb
-    username: ${DB_USER:tasks}
-    password: ${DB_PASS:tasks}
-  jpa:
-    hibernate:
-      ddl-auto: none
-    properties:
-      hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
-  sql:
-    init:
-      mode: always
-      schema-locations: classpath:schema.sql
-      data-locations: classpath:data.sql
-```
-
-✅ These values are loaded from GitHub through the Config Server, which now points to the `phase-4` tag as its configuration label.
+1. **An active Azure account** with permission to create resources.
+2. **Azure CLI** (v2.58 or later) with the following extensions installed:
+   ```bash
+   az extension add --name containerapp
+   az extension add --name log-analytics
+   ```
+3. **Docker Desktop** installed and authenticated.
+4. Logged in to Azure CLI with the correct subscription:
+   ```bash
+   az login
+   az account set --subscription "<SUBSCRIPTION_NAME_OR_ID>"
+   ```
 
 ---
 
-## 🧮 4. Schema and Initialization Scripts
+## 🧱 Code Structure
 
-### 🗂️ `schema-h2.sql` (Development)
-```sql
-CREATE TABLE IF NOT EXISTS task (
-  id           BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-  title        VARCHAR(140) NOT NULL,
-  description  CLOB,
-  status       VARCHAR(32) NOT NULL DEFAULT 'OPEN',
-  assignee     VARCHAR(140),
-  project_id   BIGINT,
-  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+The repository should contain the following directories:
+
+```
+./config-server
+./discovery
+./tasks-service
+./gateway
 ```
 
-### 🗂️ `schema.sql` (Production / PostgreSQL)
-```sql
-CREATE TABLE IF NOT EXISTS task (
-  id           BIGSERIAL PRIMARY KEY,
-  title        VARCHAR(140) NOT NULL,
-  description  TEXT,
-  status       VARCHAR(32) NOT NULL DEFAULT 'OPEN',
-  assignee     VARCHAR(140),
-  project_id   BIGINT,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-Both scripts maintain identical structures to ensure dev-prod parity.
+Each directory contains its respective `Dockerfile` for building and pushing images.
 
 ---
 
-## 🧠 5. Running with Profiles
+## 🚀 Phase 6 Objective
 
-### ▶️ Local Development (H2)
+> Recreate the entire "cloud-java" environment in **Azure**, replacing the local Docker environment with a solution based on **Azure Container Apps** and **Azure Database for PostgreSQL Flexible Server**, with centralized monitoring through **Log Analytics**.
+
+---
+
+## 🪄 Main Steps
+
+### 1️⃣ Register Azure Resource Providers
+
 ```bash
-export SPRING_PROFILES_ACTIVE=dev
-mvn spring-boot:run -pl :tasks-service
+for NS in Microsoft.ContainerRegistry Microsoft.App Microsoft.OperationalInsights Microsoft.DBforPostgreSQL; do
+  az provider register --namespace $NS
+done
+
+echo "Waiting for providers to be registered..."
+for NS in Microsoft.ContainerRegistry Microsoft.App Microsoft.OperationalInsights Microsoft.DBforPostgreSQL; do
+  while true; do
+    STATE=$(az provider show --namespace $NS --query "registrationState" -o tsv)
+    echo "$NS => $STATE"
+    [ "$STATE" = "Registered" ] && break
+    sleep 5
+  done
+done
 ```
 
-Access:
+Create the **Resource Group**, **Log Analytics Workspace**, and **Container Apps Environment**:
 
-- H2 Console → http://localhost:8081/h2-console  
-- Tasks API → http://localhost:8081/tasks
-
-### ▶️ Docker Deployment (PostgreSQL)
 ```bash
-docker compose up -d
-docker compose logs -f tasks-service
+az group create --name phase6 --location northeurope
+
+az monitor log-analytics workspace create   --resource-group phase6   --workspace-name workspace-phase6   --location northeurope
+
+az containerapp env create   --name managedEnvironment-phase6   --resource-group phase6   --location northeurope   --logs-workspace-id "$(az monitor log-analytics workspace show -g phase6 -n workspace-phase6 --query customerId -o tsv)"   --logs-workspace-key "$(az monitor log-analytics workspace get-shared-keys -g phase6 -n workspace-phase6 --query primarySharedKey -o tsv)"
 ```
 
 ---
 
-## 🔄 6. Config Server Update
+### 2️⃣ Create Azure Container Registry (ACR)
 
-**Phase 4 (antes):**
-```yaml
-spring:
-  cloud:
-    config:
-      server:
-        git:
-          uri: https://github.com/smartlearningci/cloud_java
-          searchPaths: config-repo
-          default-label: main
-```
+```bash
+az acr check-name --name phase6acr -o table
+az acr create --resource-group phase6 --name phase6acr --sku Standard --admin-enabled true
+az acr login --name phase6acr
 
-**Agora (Phase 5):**
-```yaml
-spring:
-  cloud:
-    config:
-      server:
-        git:
-          uri: https://github.com/smartlearningci/cloud_java
-          searchPaths: config-repo
-          default-label: phase-4
+az acr show -n phase6acr --query "{loginServer:loginServer, sku:sku.name, admin:adminUserEnabled}" -o table
+az acr check-health -n phase6acr --yes
 ```
 
 ---
 
-## ⚙️ 7. Relation to the 12-Factor App Principles
+### 3️⃣ Build and Push Docker Images
 
-| Principle | Implementation in Phase 5 |
-|---|---|
-| Config | Externalized via Spring Cloud Config (Git-based) |
-| Backing services | PostgreSQL treated as an attached resource |
-| Dev/Prod parity | Identical schema across profiles |
-| Disposability | Containers can be rebuilt with deterministic DB state |
-| Build, Release, Run | Profiles define runtime behavior cleanly |
-| Environment parity | Config files separate local (H2) vs Docker (Postgres) |
-| Logs | Still centralized via Docker and Spring Boot Actuator |
-
----
-
-## 🧪 8. Validation Tests
-
-### ✅ Verify Database Initialization
 ```bash
-docker exec -it postgres psql -U tasks -d tasksdb -c '\dt'
-```
+# CONFIG SERVER
+docker build -f ./config-server/Dockerfile -t phase6acr.azurecr.io/cloud-java-configserver:latest .
+docker push phase6acr.azurecr.io/cloud-java-configserver:latest
 
-Should list:
-```
- public | task | table | tasks
-```
+# DISCOVERY
+docker build -f ./discovery/Dockerfile -t phase6acr.azurecr.io/cloud-java-discovery:latest .
+docker push phase6acr.azurecr.io/cloud-java-discovery:latest
 
-### ✅ Verify Application Connectivity
-```bash
-curl http://localhost:8080/api/tasks
-```
+# TASKS SERVICE
+docker build -f ./tasks-service/Dockerfile -t phase6acr.azurecr.io/cloud-java-tasksservice:latest .
+docker push phase6acr.azurecr.io/cloud-java-tasksservice:latest
 
-### ✅ Verify Local H2
-```bash
-curl http://localhost:8081/tasks
+# GATEWAY
+docker build -f ./gateway/Dockerfile -t phase6acr.azurecr.io/cloud-java-gateway:latest .
+docker push phase6acr.azurecr.io/cloud-java-gateway:latest
 ```
 
 ---
 
-## 🧭 Conclusion
+### 4️⃣ PostgreSQL Flexible Server (Low Cost, North Europe)
 
-The transition from H2 to PostgreSQL transforms our demo architecture into a production-ready system.
-We achieve reliable persistence, externalized configuration, and profile-based flexibility without losing the ability to run locally.
-This marks a key milestone toward a 12-Factor compliant cloud-native microservices platform.
+```bash
+az postgres flexible-server create   --resource-group phase6   --name pgtasksphase6   --location northeurope   --tier Burstable --sku-name standard_b1ms --storage-size 32   --version 16   --zone 1   --backup-retention 7   --geo-redundant-backup Disabled   --storage-auto-grow Disabled   --public-access 0.0.0.0-255.255.255.255   --admin-user phase6admin   --admin-password 'Phase6!Pass123'
+
+az postgres flexible-server db create   --resource-group phase6   --server-name pgtasksphase6   --database-name tasksdb
+```
+
+**Connection details:**
+
+| Parameter | Value |
+|------------|--------|
+| Host | `pgtasksphase6.postgres.database.azure.com` |
+| User | `phase6admin@pgtasksphase6` |
+| Password | `Phase6!Pass123` |
+| DB | `tasksdb` |
+| JDBC | `jdbc:postgresql://pgtasksphase6.postgres.database.azure.com:5432/tasksdb?sslmode=require` |
+
+---
+
+### 5️⃣ Deploy Container Apps
+
+(Commands for `config-server`, `discovery`, `tasks-service`, and `gateway` are identical to previous sections in this repository — adapted for Azure deployment.)
+
+---
+
+### 6️⃣ Obtain Gateway FQDN and Test
+
+```bash
+az containerapp show -g phase6 -n gateway --query "properties.configuration.ingress.fqdn" -o tsv
+curl -sSI https://<GATEWAY_FQDN>/api/tasks
+```
+
+---
+
+## 🔍 Diagnostics and Logs
+
+```bash
+# Check registered apps in Eureka
+az containerapp exec -g phase6 -n gateway --command 'sh -lc "wget -q -O - http://discovery.internal.$(az containerapp env show -g phase6 -n managedEnvironment-phase6 --query properties.defaultDomain -o tsv)/eureka/apps | head -n 80"'
+
+# Verify configuration fetch
+az containerapp exec -g phase6 -n gateway --command 'sh -lc "wget -S -O - http://config-server.internal.$(az containerapp env show -g phase6 -n managedEnvironment-phase6 --query properties.defaultDomain -o tsv)/tasks-service/docker 2>&1 | head -n 20"'
+
+# Show logs
+az containerapp logs show -g phase6 -n tasks-service --tail 200
+```
+
+---
+
+## 📦 Final Result
+
+After completing Phase 6, the system runs entirely on **Azure Cloud**, featuring:
+- Fully managed infrastructure (no manual VMs);
+- Modular deployments using Container Apps;
+- Managed PostgreSQL database;
+- Centralized monitoring with Log Analytics.
+
+---
+
+## 🏷️ Git Tag
+
+```bash
+git tag -a phase-6 -m "Full Azure deployment — migrated from local infrastructure"
+git push origin phase-6
+```
+
+---
+
+**Authors:**  
+Smart Learning — *Cloud Java Infrastructure*  
+Phase 6 — *Azure Container Apps Deployment*

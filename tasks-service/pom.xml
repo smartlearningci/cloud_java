@@ -37,7 +37,6 @@
 	  <groupId>io.github.resilience4j</groupId>
 	  <artifactId>resilience4j-reactor</artifactId>
 	</dependency>
-		<!-- já existentes: webflux, actuator, config, eureka -->
 
 		<!-- REST + JSON -->
     <dependency>
@@ -57,11 +56,6 @@
 	  <artifactId>spring-cloud-starter-config</artifactId>
 	</dependency>
 
-		<!-- Register with Eureka and discover others (later) -->
-	<dependency>
-	  <groupId>org.springframework.cloud</groupId>
-	  <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
-	</dependency>
 
 
 	<!-- H2 em runtime (demo/dev) -->

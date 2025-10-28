@@ -1,6 +1,0 @@
-# Minimal bootstrap: load routes, eureka, API key etc. from the Config Server
-spring:
-  application:
-    name: gateway
-  config:
-    import: optional:configserver:${CONFIG_SERVER_URL:}

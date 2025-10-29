@@ -65,10 +65,8 @@
 
   <!-- List all modules (existing + new). Add new ones here so 'mvn' builds everything. -->
   <modules>
-    <module>gateway</module>
     <module>tasks-service</module>
     <module>config-server</module>
-    <module>discovery</module>
   </modules>
 
   <!-- Shared plugin configuration (compiler etc.). Children inherit these settings. -->
@@ -96,18 +94,14 @@
             <enabled>true</enabled>
           </layers>
         </configuration>
-      </plugin>
-          <plugin>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-maven-plugin</artifactId>
-      <executions>
+              <executions>
         <execution>
           <goals>
             <goal>repackage</goal>
           </goals>
         </execution>
       </executions>
-    </plugin>
+      </plugin>
           <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>

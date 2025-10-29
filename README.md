@@ -1,100 +1,91 @@
-# ☁️ Cloud Java — Phase 6 (Azure Deployment)
+# Phase 6 → Phase 7 Migration — AKS Architecture (with Config Server and Application Gateway)
 
-## 📘 Context
+## 📘 Overview
 
-In this phase, the **Cloud Java** project transitions from a **local infrastructure (Phase 5)** to a **fully managed infrastructure in Microsoft Azure**.
+The Phase 6 architecture was based on **Docker Compose** for local or VM orchestration, using multiple Spring Boot services (e.g., `config-server`, `tasks-service`), a PostgreSQL container, and local network bridges.
 
-The goal is to reproduce the same microservices ecosystem (`config-server`, `discovery`, `tasks-service`, and `gateway`), now with:
-- **Azure Container Apps** instead of local Docker containers;
-- **Azure Container Registry (ACR)** as the image repository;
-- **PostgreSQL Flexible Server** as a managed database service;
-- **Log Analytics** and **Managed Environment** for integrated monitoring.
+**Phase 7** evolves the system into a **Kubernetes (AKS)** architecture, providing scalability, better network management, and integration with Azure managed services:
 
-This results in a lightweight, scalable production environment with automatic networking and logging management — maintaining the same functional architecture used locally.
-
----
-
-## ⚙️ Prerequisites
-
-Before running this script, make sure you have:
-
-1. **An active Azure account** with permission to create resources.
-2. **Azure CLI** (v2.58 or later) with the following extensions installed:
-   ```bash
-   az extension add --name containerapp
-   az extension add --name log-analytics
-   ```
-3. **Docker Desktop** installed and authenticated.
-4. Logged in to Azure CLI with the correct subscription:
-   ```bash
-   az login
-   az account set --subscription "<SUBSCRIPTION_NAME_OR_ID>"
-   ```
+- Centralized **Config Server**
+- **PostgreSQL** via Azure Database for PostgreSQL
+- **Application Gateway (AGIC)** for public access and routing
+- **Azure Container Registry (ACR)** for image management
 
 ---
 
-## 🧱 Code Structure
-
-The repository should contain the following directories:
+## 🔹 Architecture Diagram
 
 ```
-./config-server
-./discovery
-./tasks-service
-./gateway
+                          ┌──────────────────────────────┐
+                          │      Azure App Gateway       │
+                          │     (Public IP 4.175.61.171) │
+                          └────────────┬─────────────────┘
+                                       │
+                         Ingress (AGIC - Ingress Controller)
+                                       │
+          ┌──────────────────────────────────────────────────────────┐
+          │                       AKS Cluster                        │
+          │                                                          │
+          │  ┌─────────────────────────────┐   ┌──────────────────┐  │
+          │  │  config-server Deployment   │   │ tasks-service    │  │
+          │  │  (port 8888)                │   │ (port 8081)      │  │
+          │  │  fetches git configs        │   │ gets config from │  │
+          │  │  exposed as ClusterIP svc   │   │ config-server    │  │
+          │  └──────────────┬──────────────┘   └────────┬─────────┘  │
+          │                 │                           │            │
+          │                 ▼                           ▼            │
+          │        http://config-server:8888     jdbc:postgresql://  │
+          │                │                            │            │
+          │                └──────────┬─────────────────┘            │
+          │                           │                              │
+          │                   PostgreSQL Azure DB                    │
+          │        (pgtasksphase7.postgres.database.azure.com)        │
+          └──────────────────────────────────────────────────────────┘
 ```
 
-Each directory contains its respective `Dockerfile` for building and pushing images.
+---
+
+## 🔹 Key Differences
+
+| Component | Phase 6 | Phase 7 | Note |
+|------------|----------|----------|------|
+| **Orchestration** | Docker Compose | AKS (Kubernetes) | YAML-based deployment |
+| **Config Server** | Local container | AKS Deployment | ClusterIP 8888 |
+| **Tasks Service** | Local container | AKS Deployment | Uses config-server |
+| **Database** | PostgreSQL container | Azure DB | Managed, SSL required |
+| **Ingress / Gateway** | Local Nginx | Azure App Gateway (AGIC) | Public IP routing |
+| **Images** | Local Docker | Azure Container Registry | Automated pull/push |
 
 ---
 
-## 🚀 Phase 6 Objective
+## 🔹 Step-by-Step Migration
 
-> Recreate the entire "cloud-java" environment in **Azure**, replacing the local Docker environment with a solution based on **Azure Container Apps** and **Azure Database for PostgreSQL Flexible Server**, with centralized monitoring through **Log Analytics**.
+### 1️⃣ Create Azure Container Registry (ACR)
 
----
+**Portal:**
+1. Create Resource → Container Registry
+2. Set name, RG, SKU = *Basic*
+3. Enable *Admin user*.
 
-## 🪄 Main Steps
-
-### 1️⃣ Register Azure Resource Providers
-
+**CLI:**
 ```bash
-for NS in Microsoft.ContainerRegistry Microsoft.App Microsoft.OperationalInsights Microsoft.DBforPostgreSQL; do
-  az provider register --namespace $NS
-done
-
-echo "Waiting for providers to be registered..."
-for NS in Microsoft.ContainerRegistry Microsoft.App Microsoft.OperationalInsights Microsoft.DBforPostgreSQL; do
-  while true; do
-    STATE=$(az provider show --namespace $NS --query "registrationState" -o tsv)
-    echo "$NS => $STATE"
-    [ "$STATE" = "Registered" ] && break
-    sleep 5
-  done
-done
-```
-
-Create the **Resource Group**, **Log Analytics Workspace**, and **Container Apps Environment**:
-
-```bash
-az group create --name phase6 --location northeurope
-
-az monitor log-analytics workspace create   --resource-group phase6   --workspace-name workspace-phase6   --location northeurope
-
-az containerapp env create   --name managedEnvironment-phase6   --resource-group phase6   --location northeurope   --logs-workspace-id "$(az monitor log-analytics workspace show -g phase6 -n workspace-phase6 --query customerId -o tsv)"   --logs-workspace-key "$(az monitor log-analytics workspace get-shared-keys -g phase6 -n workspace-phase6 --query primarySharedKey -o tsv)"
+az acr create --resource-group phase7-rg --name phase7acr --sku Basic
+az acr update --name phase7acr --admin-enabled true
 ```
 
 ---
 
-### 2️⃣ Create Azure Container Registry (ACR)
+### 2️⃣ Create AKS Cluster
 
+**Portal:**
+- Create Resource → Kubernetes Service
+- Node Pool: 1 node, Standard_B2s or higher
+- Network: *Azure CNI*
+- Attach ACR in Integration tab.
+
+**CLI:**
 ```bash
-az acr check-name --name phase6acr -o table
-az acr create --resource-group phase6 --name phase6acr --sku Standard --admin-enabled true
-az acr login --name phase6acr
-
-az acr show -n phase6acr --query "{loginServer:loginServer, sku:sku.name, admin:adminUserEnabled}" -o table
-az acr check-health -n phase6acr --yes
+az aks create   --resource-group phase7-rg   --name aks-phase7   --node-count 1   --enable-addons monitoring   --attach-acr phase7acr   --generate-ssh-keys
 ```
 
 ---
@@ -102,94 +93,200 @@ az acr check-health -n phase6acr --yes
 ### 3️⃣ Build and Push Docker Images
 
 ```bash
-# CONFIG SERVER
-docker build -f ./config-server/Dockerfile -t phase6acr.azurecr.io/cloud-java-configserver:latest .
-docker push phase6acr.azurecr.io/cloud-java-configserver:latest
+docker build -t phase7acr.azurecr.io/cloud-java-configserver:no-eureka-3 .
+docker push phase7acr.azurecr.io/cloud-java-configserver:no-eureka-3
 
-# DISCOVERY
-docker build -f ./discovery/Dockerfile -t phase6acr.azurecr.io/cloud-java-discovery:latest .
-docker push phase6acr.azurecr.io/cloud-java-discovery:latest
-
-# TASKS SERVICE
-docker build -f ./tasks-service/Dockerfile -t phase6acr.azurecr.io/cloud-java-tasksservice:latest .
-docker push phase6acr.azurecr.io/cloud-java-tasksservice:latest
-
-# GATEWAY
-docker build -f ./gateway/Dockerfile -t phase6acr.azurecr.io/cloud-java-gateway:latest .
-docker push phase6acr.azurecr.io/cloud-java-gateway:latest
+docker build -t phase7acr.azurecr.io/cloud-java-tasksservice:no-eureka-3 .
+docker push phase7acr.azurecr.io/cloud-java-tasksservice:no-eureka-3
 ```
 
 ---
 
-### 4️⃣ PostgreSQL Flexible Server (Low Cost, North Europe)
+### 4️⃣ Deploy via YAML (Free Tier Limitation)
+
+Since the Azure Portal (Free Tier) restricts advanced settings (env vars, probes), we used YAML manifests instead.
+
+**config-server.yaml**
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: config-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: config-server
+  template:
+    metadata:
+      labels:
+        app: config-server
+    spec:
+      containers:
+        - name: config-server
+          image: phase7acr.azurecr.io/cloud-java-configserver:no-eureka-3
+          ports:
+            - containerPort: 8888
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: config-server
+spec:
+  selector:
+    app: config-server
+  ports:
+    - port: 8888
+      targetPort: 8888
+  type: ClusterIP
+```
 
 ```bash
-az postgres flexible-server create   --resource-group phase6   --name pgtasksphase6   --location northeurope   --tier Burstable --sku-name standard_b1ms --storage-size 32   --version 16   --zone 1   --backup-retention 7   --geo-redundant-backup Disabled   --storage-auto-grow Disabled   --public-access 0.0.0.0-255.255.255.255   --admin-user phase6admin   --admin-password 'Phase6!Pass123'
-
-az postgres flexible-server db create   --resource-group phase6   --server-name pgtasksphase6   --database-name tasksdb
+kubectl apply -f config-server.yaml
+kubectl get pods -l app=config-server
 ```
 
-**Connection details:**
-
-| Parameter | Value |
-|------------|--------|
-| Host | `pgtasksphase6.postgres.database.azure.com` |
-| User | `phase6admin@pgtasksphase6` |
-| Password | `Phase6!Pass123` |
-| DB | `tasksdb` |
-| JDBC | `jdbc:postgresql://pgtasksphase6.postgres.database.azure.com:5432/tasksdb?sslmode=require` |
-
 ---
 
-### 5️⃣ Deploy Container Apps
+### 5️⃣ Deploy the Tasks Service
 
-(Commands for `config-server`, `discovery`, `tasks-service`, and `gateway` are identical to previous sections in this repository — adapted for Azure deployment.)
-
+**tasks-service.yaml**
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tasks-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tasks-service
+  template:
+    metadata:
+      labels:
+        app: tasks-service
+    spec:
+      containers:
+        - name: tasks-service
+          image: phase7acr.azurecr.io/cloud-java-tasksservice:no-eureka-3
+          ports:
+            - containerPort: 8081
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: docker
+            - name: SPRING_CLOUD_CONFIG_URI
+              value: http://config-server.default.svc.cluster.local:8888
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://pgtasksphase7.postgres.database.azure.com:5432/tasksdb?sslmode=require
+            - name: SPRING_DATASOURCE_USERNAME
+              value: phase7admin
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: Phase7!Pass123
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 45
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 15
 ---
-
-### 6️⃣ Obtain Gateway FQDN and Test
+apiVersion: v1
+kind: Service
+metadata:
+  name: tasks-service
+spec:
+  selector:
+    app: tasks-service
+  ports:
+    - port: 8081
+      targetPort: 8081
+  type: ClusterIP
+```
 
 ```bash
-az containerapp show -g phase6 -n gateway --query "properties.configuration.ingress.fqdn" -o tsv
-curl -sSI https://<GATEWAY_FQDN>/api/tasks
+kubectl apply -f tasks-service.yaml
+kubectl get pods -l app=tasks-service
 ```
 
 ---
 
-## 🔍 Diagnostics and Logs
+### 6️⃣ Enable Application Gateway Ingress Controller (AGIC)
+
+**Portal:**
+- Go to AKS → Ingress Controllers → Add Controller
+- Type: Application Gateway
+- Existing Gateway: `appgw-phase7`
+- Namespace: `kube-system`
+- Enable controller.
+
+**CLI:**
+```bash
+az aks enable-addons   --addons ingress-appgw   --name aks-phase7   --resource-group phase7-rg   --appgw-name appgw-phase7
+```
+
+Check:
+```bash
+kubectl get pods -n kube-system -l app=ingress-appgw -o wide
+```
+
+---
+
+### 7️⃣ Create Ingress Resource
+
+**tasks-ingress.yaml**
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tasks-ingress
+  annotations:
+    kubernetes.io/ingress.class: azure/application-gateway
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: tasks-service
+            port:
+              number: 8081
+```
 
 ```bash
-# Check registered apps in Eureka
-az containerapp exec -g phase6 -n gateway --command 'sh -lc "wget -q -O - http://discovery.internal.$(az containerapp env show -g phase6 -n managedEnvironment-phase6 --query properties.defaultDomain -o tsv)/eureka/apps | head -n 80"'
+kubectl apply -f tasks-ingress.yaml
+kubectl get ingress -o wide
+```
 
-# Verify configuration fetch
-az containerapp exec -g phase6 -n gateway --command 'sh -lc "wget -S -O - http://config-server.internal.$(az containerapp env show -g phase6 -n managedEnvironment-phase6 --query properties.defaultDomain -o tsv)/tasks-service/docker 2>&1 | head -n 20"'
-
-# Show logs
-az containerapp logs show -g phase6 -n tasks-service --tail 200
+Expected output:
+```
+NAME            CLASS    HOSTS   ADDRESS         PORTS   AGE
+tasks-ingress   <none>   *       4.175.61.171    80      5m
 ```
 
 ---
 
-## 📦 Final Result
+### 8️⃣ Test Service
 
-After completing Phase 6, the system runs entirely on **Azure Cloud**, featuring:
-- Fully managed infrastructure (no manual VMs);
-- Modular deployments using Container Apps;
-- Managed PostgreSQL database;
-- Centralized monitoring with Log Analytics.
-
----
-
-## 🏷️ Git Tag
-
-```bash
-git tag -a phase-6 -m "Full Azure deployment — migrated from local infrastructure"
-git push origin phase-6
+Visit:
+```
+http://4.175.61.171/actuator/health
+```
+Expected response:
+```json
+{"status":"UP"}
 ```
 
 ---
 
-**Authors:**  
-Smart Learning — *Cloud Java Infrastructure*  
-Phase 6 — *Azure Container Apps Deployment*
+## ✅ Notes and Limitations
+
+- Free tier portal limits YAML complexity (env vars, probes).  
+  → Deployments applied using `kubectl apply -f`.
+- DNS resolution inside the cluster uses `*.svc.cluster.local`.
+- App Gateway (AGIC) automatically manages routes and health checks.
+- Each microservice runs in its own deployment, independently scalable.

@@ -11,40 +11,20 @@ import java.util.*;
 
 /**
  * REST API for Tasks (Phase 0).
- * Conventions:
- *  - JSON in/out
- *  - minimal validation to reduce cognitive load
- *  - status transitions not enforced yet (we keep it simple in Phase 0)
- *
- * Tip for learners:
- *  - If you see "Ensure compiler uses -parameters", this project already sets it
- *    in maven-compiler-plugin. Make sure you run with Maven or refresh the IDE.
  */
 @RestController
 @RequestMapping(value = "/tasks", produces = MediaType.APPLICATION_JSON_VALUE)
 @RequiredArgsConstructor
 public class TaskController {
 
-  // Spring injects a runtime proxy that implements our TaskRepository interface
   private final TaskRepository repo;
 
-  /**
-   * Create a task.
-   * Phase 0: we accept the body as-is and rely on defaults for id/status.
-   * Returns 201 with the persisted entity (including generated id and timestamps).
-   */
   @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
   public ResponseEntity<Task> create(@RequestBody Task body) {
     Task saved = repo.save(body);
     return ResponseEntity.status(201).body(saved);
   }
 
-  /**
-   * List tasks. Optional filters:
-   *  - status=TODO|DOING|DONE
-   *  - projectId=<string>
-   * With both filters present, we match by both.
-   */
   @GetMapping
   public List<Task> list(
       @RequestParam(name = "status", required = false) String status,
@@ -55,27 +35,41 @@ public class TaskController {
     return repo.findAll();
   }
 
-  /** Fetch a task by id, or return 404 if not found. */
   @GetMapping("/{id}")
   public ResponseEntity<Task> getById(@PathVariable("id") String id) {
     return repo.findById(id).map(ResponseEntity::ok)
               .orElseGet(() -> ResponseEntity.notFound().build());
   }
 
-  /**
-   * Update task status only (PATCH).
-   * Body shape: { "status": "DONE" }
-   * Phase 0: we do not validate transitions; we keep the happy path.
-   */
   @PatchMapping(path = "/{id}/status", consumes = MediaType.APPLICATION_JSON_VALUE)
   public ResponseEntity<?> updateStatus(
       @PathVariable("id") String id,
       @RequestBody Map<String, String> body) {
-
     return repo.findById(id).map(t -> {
       String newStatus = body.get("status");
       if (newStatus != null) t.setStatus(newStatus);
       return ResponseEntity.ok(repo.save(t));
     }).orElseGet(() -> ResponseEntity.notFound().build());
+  }
+
+  /** 👇 Novo endpoint "human friendly" para browser */
+  @GetMapping(path = "/", produces = MediaType.TEXT_HTML_VALUE)
+  public String infoPage() {
+    return """
+        <html>
+          <head><title>Task Service API</title></head>
+          <body style='font-family:Arial; margin:2em;'>
+            <h1>✅ Task Service API</h1>
+            <p>Bem-vindo ao <strong>Task Service</strong>!</p>
+            <p>Use os endpoints REST:</p>
+            <ul>
+              <li>GET /tasks – listar tarefas</li>
+              <li>POST /tasks – criar tarefa</li>
+              <li>GET /tasks/{id} – ver uma tarefa</li>
+              <li>PATCH /tasks/{id}/status – atualizar estado</li>
+            </ul>
+          </body>
+        </html>
+        """;
   }
 }

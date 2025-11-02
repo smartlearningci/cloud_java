@@ -1,0 +1,72 @@
+name: CI/CD tasks-service (AKS)
+
+on:
+  push:
+    branches: [ phase-8, main ]
+    paths:
+      - "tasks-service/**"
+      - "!**.md"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  RG: phase7
+  AKS: aks-phase7
+  ACR_NAME: phase7registry
+  ACR_LOGIN: phase7registry.azurecr.io
+  NS: default
+  DEPLOYMENT_NAME: tasks-service
+  CONTAINER_NAME: tasks-service
+  IMAGE_NAME: cloud-java-tasksservice
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build (Maven)
+        working-directory: tasks-service
+        run: mvn -B -DskipTests package
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Docker login to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build & Push image
+        run: |
+          IMAGE_TAG=${{ github.sha }}
+          docker build \
+            -t $ACR_LOGIN/$IMAGE_NAME:$IMAGE_TAG \
+            -t $ACR_LOGIN/$IMAGE_NAME:latest \
+            -f tasks-service/Dockerfile .
+          docker push $ACR_LOGIN/$IMAGE_NAME:$IMAGE_TAG
+          docker push $ACR_LOGIN/$IMAGE_NAME:latest
+          echo "IMAGE=$ACR_LOGIN/$IMAGE_NAME:$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Set AKS context
+        uses: azure/aks-set-context@v4
+        with:
+          resource-group: ${{ env.RG }}
+          cluster-name: ${{ env.AKS }}
+
+      - name: Rollout on AKS
+        run: |
+          kubectl -n $NS set image deployment/$DEPLOYMENT_NAME \
+            $CONTAINER_NAME=${IMAGE}
+          kubectl -n $NS rollout status deployment/$DEPLOYMENT_NAME --timeout=180s

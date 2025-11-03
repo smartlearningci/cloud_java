@@ -1,357 +1,350 @@
-# 🚀 Phase 7 — Full Azure AKS Deployment (with App Gateway + AGIC)
+# 🧩 PHASE 8 – Automated CI/CD (No Command Line)
+
+## 🧠 1. Core Concepts
+
+### 🔹 What is CI/CD and why use it
+- **Continuous Integration (CI)** ensures that every commit is automatically built, validated, and packaged.  
+- **Continuous Delivery / Deployment (CD)** automates the delivery of new versions to production environments.  
+- The goal is to eliminate manual steps (`docker build`, `docker push`, `kubectl apply`), reduce human error, and ensure repeatable, traceable releases.
 
 ```
-                ┌─────────────────────────────┐
-                │ Azure Application Gateway   │
-                │  (Public IP + Listener 80)  │
-                └─────────────┬───────────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │  AKS Cluster    │
-                    │   (aks-phase7)  │
-                    └─────────────────┘
-                       │           │
-        ┌───────────────┘           └───────────────┐
-        ▼                                           ▼
-┌────────────────────┐                    ┌────────────────────┐
-│ config-server Pod  │                    │ tasks-service Pod  │
-│ Port 8888          │                    │ Port 8081          │
-│ Reads Git Config   │                    │ Uses DB tasksbd    │
-└────────────────────┘                    └────────────────────┘
-                                                │
-                                                ▼
-                                    ┌────────────────────────────┐
-                                    │ Azure PostgreSQL (Flexible)│
-                                    │ Server: pgtaskphase7       │
-                                    │ Database: tasksbd          │
-                                    └────────────────────────────┘
+   +------------+        +------------------+        +----------------+
+   |  Developer |  Push  | GitHub Workflow  | Deploy | Azure (AKS)   |
+   |  Commit    | -----> |  (CI/CD Action)  | -----> | Pods Updated  |
+   +------------+        +------------------+        +----------------+
 ```
 
----
+### 🔐 OpenID Connect (OIDC)
+OIDC allows GitHub Actions to log in to Azure securely **without secrets or passwords**.  
+Azure Entra ID trusts GitHub as an identity provider and issues short-lived access tokens.
 
-## ⚙️ 1) Concepts & Theory — Kubernetes and AKS
+```
+GitHub Action  ---- OIDC Token ---->  Azure Entra ID  ---->  Authorized Access
+```
 
-**Kubernetes:**  
-- Core components: *Pods, ReplicaSets, Deployments, Services, Ingress, ConfigMaps/Secrets, health probes* (`startup`, `readiness`, `liveness`).  
-- Declarative model: YAML defines desired state → reconciled by controllers.
+### 🏗️ Azure Container Registry (ACR)
+The ACR stores Docker images built by GitHub Actions.
 
-**AKS (Azure Kubernetes Service):**  
-- Managed Kubernetes integrating **Azure Container Registry (ACR)**, **Azure CNI**, **Application Gateway Ingress Controller (AGIC)**, and **Azure Monitor**.  
-- Uses *Managed Identity* and supports *RBAC*.  
+```
++-----------+     +----------------+     +---------------+
+|  Source   | --> |  Build Docker  | --> |  Push to ACR  |
++-----------+     +----------------+     +---------------+
+```
 
----
+### ☸️ Azure Kubernetes Service (AKS)
+AKS pulls the new image and performs a **rolling update** to replace old pods with new ones.
 
-## 🔄 2) From Phase 6 → Phase 7 — What Changed
-
-| Component | Phase 6 | Phase 7 | Notes |
-|------------|----------|----------|-------|
-| Orchestration | Docker Compose | AKS (Kubernetes) | Declarative YAML, scalable |
-| Config Server | Local container | AKS Deployment + Service | Git-backed config |
-| API Service | Local container | AKS Deployment + Service | Reads from config-server |
-| Database | Local container | Azure PostgreSQL Flexible | SSL required |
-| Public Entry | Nginx/App Service | App Gateway + AGIC | Layer 7 routing |
-| Registry | Docker Hub/Local | Azure Container Registry | Integrated with AKS |
-| Secrets | Inline env vars | K8s Secrets / Key Vault | Improved security |
-| Networking | Docker bridge | Azure CNI | Pod IPs inside VNet |
-
----
-
-## 🧭 3) End-to-End Deployment Guide (Phase 7)
-
-### Region: West Europe  
-### Resource Group: `phase7`  
-### Components
-
-| Service | Name |
-|----------|------|
-| **VNet/Subnets** | `vnet-phase7`, `aks-subnet`, `appgw-subnet` |
-| **Application Gateway** | `appgw-phase7` + IP `appw-phase7-ip` |
-| **AKS Cluster** | `aks-phase7` |
-| **ACR** | `phase7registry` |
-| **Database** | `pgtaskphase7.postgres.database.azure.com` |
-| **DB name (app)** | `tasksbd` |
-| **Credentials** | user: `phase7admin`, pass: `Phase7!Pass123` |
-| **Images** | `phase7registry.azurecr.io/cloud-java-configserver:no-eureka-3`<br>`phase7registry.azurecr.io/cloud-java-tasksservice:no-eureka-3` |
-
----
-
-### 0️⃣ First-time Azure CLI setup
-
-```bash
-az login
-az account list -o table
-az account set --subscription "<YOUR-SUBSCRIPTION-NAME>"
-
-# Register providers
-az provider register --namespace Microsoft.Network
-az provider register --namespace Microsoft.ContainerService
-az provider register --namespace Microsoft.ContainerRegistry
-az provider register --namespace Microsoft.OperationalInsights
-az provider register --namespace Microsoft.Insights
-
-# Confirm all Registered
-az provider list --query "[].{ns:namespace, state:registrationState}" -o table
+```
+[v1 pod] [v1 pod]  →  [v2 pod] [v2 pod]
+(remove old)         (create new gradually)
 ```
 
 ---
 
-### 1️⃣ Resource Group & Virtual Network
+## ⚙️ 2. Practical Implementation
 
-```bash
-az group create -n phase7 -l westeurope
+### ✅ Prerequisites (from Phase 7)
+- Azure Kubernetes Service (AKS) running `tasks-service` and `config-server`
+- Azure Container Registry (ACR) with Docker images
+- Kubernetes Deployment YAMLs for both services
+- GitHub repository `smartlearningci/cloud_java` with latest code
 
-az network vnet create -g phase7 -n vnet-phase7   --address-prefix 10.0.0.0/8   --subnet-name aks-subnet --subnet-prefix 10.1.0.0/16
-
-az network vnet subnet create -g phase7 --vnet-name vnet-phase7   -n appgw-subnet --address-prefix 10.2.0.0/16
+```
++--------------------+            +----------------------+
+|   Developer (STS)  |            |  GitHub Repository   |
+|  code changes ---> |  Commit →  |  cloud_java          |
++--------------------+            +----------------------+
+                                        |
+                                        v
+                                +-------------------+
+                                | GitHub Actions CI |
+                                +-------------------+
+                                        |
+                                        v
++---------------------+          +-------------------------+
+| Azure Container     | Push     | Azure Kubernetes Service |
+| Registry (ACR)      |--------> | (AKS) updates pods       |
++---------------------+          +-------------------------+
 ```
 
 ---
 
-### 2️⃣ Application Gateway
+## 1️⃣ Create a Federated Identity (OIDC) in Azure Portal
 
-Portal → Create → **Application Gateway**
+**Goal:** allow GitHub to authenticate to Azure securely without storing credentials.
 
-- RG = `phase7`
-- Name = `appgw-phase7`
-- Tier = Standard v2  
-- Region = West Europe  
-- VNet = `vnet-phase7`, Subnet = `appgw-subnet`
-- IP = new static public IP → `appw-phase7-ip`
-- Autoscale = Min 1 / Max 2
-- Backend Pool = placeholder
-- Listener = Port 80 HTTP
-- Routing Rule = link listener → pool (backend port 8081, timeout 30 s)
+**Steps in Azure Portal**
+1. Go to **Microsoft Entra ID → App registrations → New registration**
+   - **Name:** `gh-oidc-cloud-java`
+   - **Supported account type:** Single tenant
+   - **Redirect URI:** leave blank
+   - Click **Register**
+2. After creation, note:
+   - **Application (Client) ID**
+   - **Directory (Tenant) ID**
+3. Open **Certificates & Secrets → Federated credentials → + Add credential**
+   - Type: **GitHub Actions**
+   - Organization: `smartlearningci`
+   - Repository: `cloud_java`
+   - Branch: `phase-8` (or `main`)
+   - Entity type: **Branch**
+   - Save
 
-CLI equivalent:
-
-```bash
-az network public-ip create -g phase7 -n appw-phase7-ip --sku Standard --allocation-method Static
-
-az network application-gateway create   -g phase7 -n appgw-phase7   --vnet-name vnet-phase7   --subnet appgw-subnet   --sku Standard_v2   --capacity 1   --public-ip-address appw-phase7-ip
-
-az network application-gateway update -g phase7 -n appgw-phase7   --min-capacity 1 --max-capacity 2
+```
+GitHub Actions  ─────────►  Azure Entra ID (OIDC)
+       │                        │
+       │   issues secure token  │
+       └────────────────────────┘
 ```
 
 ---
 
-### 3️⃣ Azure Container Registry + Multi-Arch Build
+## 2️⃣ Assign Permissions (RBAC)
 
-```bash
-az acr create -g phase7 -n phase7registry --sku Basic --admin-enabled true
-az acr login -n phase7registry
+The application `gh-oidc-cloud-java` needs access to Azure resources.
 
-docker buildx create --use
-docker buildx inspect --bootstrap
+### a) Subscription
+- Role → **Reader**
+- Resource → Subscription
+- Assign to → `gh-oidc-cloud-java`
 
-# Config Server
-docker buildx build   -f ./config-server/Dockerfile   -t phase7registry.azurecr.io/cloud-java-configserver:no-eureka-3   --platform linux/amd64,linux/arm64 --push .
+### b) ACR
+- Role → **AcrPush**
+- Resource → Container Registry (`phase7registry`)
+- Assign to → `gh-oidc-cloud-java`
 
-# Tasks Service
-docker buildx build   -f ./tasks-service/Dockerfile   -t phase7registry.azurecr.io/cloud-java-tasksservice:no-eureka-3   --platform linux/amd64,linux/arm64 --push .
+```
+GitHub Actions
+    │
+    ▼
+[ ACR ]
+ | receives docker push
+ | stores image
+ +----------------------+
+```
 
-az acr repository list -n phase7registry -o table
-az acr repository show-tags -n phase7registry --repository cloud-java-tasksservice -o table
+### c) AKS
+- Role → **Azure Kubernetes Service RBAC Cluster Admin**
+- Resource → AKS Cluster (`aks-phase7`)
+- Assign to → `gh-oidc-cloud-java`
+
+```
+GitHub Actions
+    │
+    ▼
+[ AKS Cluster ]
+ | kubectl set image
+ | rollout update
+ +------------------+
+```
+
+> ⏳ Wait ~1–3 minutes for RBAC propagation before running the workflow.
+
+---
+
+## 3️⃣ Create GitHub Secrets (with exact Azure Portal locations)
+
+In GitHub → **Settings → Secrets and variables → Actions → New repository secret**.  
+Create these three secrets, with values taken from the Azure Portal at the exact locations below:
+
+| Secret Name | Where to find in Azure Portal | Value to copy |
+|---|---|---|
+| `AZURE_CLIENT_ID` | **Microsoft Entra ID → App registrations →** select `gh-oidc-cloud-java` → **Overview** | **Application (client) ID** |
+| `AZURE_TENANT_ID` | **Microsoft Entra ID → App registrations →** select `gh-oidc-cloud-java` → **Overview** | **Directory (tenant) ID** |
+| `AZURE_SUBSCRIPTION_ID` | **Subscriptions →** select your active subscription → **Overview** | **Subscription ID** |
+
+```
++-----------------------------------+
+| GitHub Secrets (encrypted)        |
+| - AZURE_CLIENT_ID                 |
+| - AZURE_TENANT_ID                 |
+| - AZURE_SUBSCRIPTION_ID           |
++-----------------------------------+
 ```
 
 ---
 
-### 4️⃣ AKS Cluster (Azure CNI + ACR Attach)
+## 4️⃣ Configure CI/CD from AKS Portal
 
-```bash
-az aks create -g phase7 -n aks-phase7   --node-count 1   --enable-managed-identity   --network-plugin azure   --vnet-subnet-id $(az network vnet subnet show -g phase7 --vnet-name vnet-phase7 -n aks-subnet --query id -o tsv)   --attach-acr phase7registry
+1. Open your AKS resource in the Azure Portal  
+2. Navigate to **Deployment Center** → **Configure CI/CD (GitHub Actions)**  
+3. Log in with your GitHub account  
+4. Select:  
 
-az aks get-credentials -g phase7 -n aks-phase7
+| Field | Value |
+|-------|-------|
+| Organization | smartlearningci |
+| Repository | cloud_java |
+| Branch | phase-8 (or main) |
+| Docker file | `tasks-service/Dockerfile` |
+| Image name | `cloud-java-tasksservice` |
+| Container registry | `phase7registry` |
+| Kubernetes manifest | YAML for `tasks-service` |
+| Deployment strategy | kubectl |
+
+The portal will:
+- auto-create `.github/workflows/azure-kubernetes-service.yml`
+- open a Pull Request
+- once merged, activate the pipeline
+
+```
+.github/
+ └── workflows/
+      └── azure-kubernetes-service.yml
+tasks-service/
+ ├── Dockerfile
+ ├── pom.xml
+ ├── src/
+ └── deployment.yml
 ```
 
 ---
 
-### 5️⃣ Enable Application Gateway Ingress Controller (AGIC)
+## 5️⃣ Final Workflow YAML
 
-```bash
-APPGW_ID=$(az network application-gateway show -g phase7 -n appgw-phase7 --query id -o tsv)
-
-az aks enable-addons -g phase7 -n aks-phase7   -a ingress-appgw --appgw-id $APPGW_ID
-
-kubectl get pods -n kube-system -l app=ingress-appgw -o wide
+High-level steps:
 ```
-
----
-
-### 6️⃣ Config Server Deployment
+GitHub Actions CI/CD
+ ├── Build (Maven)
+ ├── Docker build & push → ACR
+ ├── AKS login & rollout
+ └── Check pods
+```
 
 ```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: config-server
-  labels: { app: config-server }
-spec:
-  replicas: 1
-  selector: { matchLabels: { app: config-server } }
-  template:
-    metadata: { labels: { app: config-server } }
-    spec:
-      containers:
-        - name: config-server
-          image: phase7registry.azurecr.io/cloud-java-configserver:no-eureka-3
-          ports: [ { containerPort: 8888 } ]
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: config-server
-spec:
-  type: ClusterIP
-  selector: { app: config-server }
-  ports:
-    - port: 8888
-      targetPort: 8888
+name: CI/CD tasks-service (AKS)
+
+on:
+  push:
+    branches: [ phase-8, main ]
+    paths: [ "tasks-service/**" ]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  RG: phase7
+  AKS: aks-phase7
+  ACR_NAME: phase7registry
+  ACR_LOGIN: phase7registry.azurecr.io
+  NS: default
+  DEPLOYMENT_NAME: tasks-service
+  CONTAINER_NAME: tasks-service
+  IMAGE_NAME: cloud-java-tasksservice
+  ROLLOUT_TIMEOUT: 10m
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: mvn -B -DskipTests -f tasks-service/pom.xml package
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        run: |
+          TOKEN=$(az acr login --name $ACR_NAME --expose-token --query accessToken -o tsv)
+          echo "$TOKEN" | docker login $ACR_LOGIN -u 00000000-0000-0000-0000-000000000000 --password-stdin
+
+      - name: Build & Push
+        run: |
+          TAG=${{ github.sha }}
+          docker build -t $ACR_LOGIN/$IMAGE_NAME:$TAG -t $ACR_LOGIN/$IMAGE_NAME:latest -f tasks-service/Dockerfile .
+          docker push $ACR_LOGIN/$IMAGE_NAME:$TAG
+          docker push $ACR_LOGIN/$IMAGE_NAME:latest
+          echo "IMAGE=$ACR_LOGIN/$IMAGE_NAME:$TAG" >> $GITHUB_ENV
+
+      - uses: azure/aks-set-context@v4
+        with:
+          resource-group: ${{ env.RG }}
+          cluster-name: ${{ env.AKS }}
+
+      - name: Rollout update
+        run: |
+          kubectl -n $NS set image deployment/$DEPLOYMENT_NAME $CONTAINER_NAME=${IMAGE}
+          kubectl -n $NS rollout status deployment/$DEPLOYMENT_NAME --timeout=${{ env.ROLLOUT_TIMEOUT }}
 ```
 
-```bash
-kubectl apply -f deploy-config-server.yaml
-kubectl get svc config-server
+---
+
+## 6️⃣ Full Visual Flow
+```
+┌────────────────────────────┐
+│   1. Commit in GitHub      │
+│   (branch phase-8 or main) │
+└─────────────┬──────────────┘
+              │
+              ▼
+┌────────────────────────────┐
+│  2. GitHub Action starts   │
+│  - OIDC login to Azure     │
+│  - Maven build             │
+│  - docker build/push       │
+└─────────────┬──────────────┘
+              │
+              ▼
+┌────────────────────────────┐
+│  3. ACR receives new image │
+│     cloud-java-tasksservice│
+└─────────────┬──────────────┘
+              │
+              ▼
+┌────────────────────────────┐
+│  4. AKS updates deployment │
+│     kubectl set image      │
+│     rollout status         │
+└─────────────┬──────────────┘
+              │
+              ▼
+┌────────────────────────────┐
+│  5. New Pod is Ready       │
+│     with new image         │
+└────────────────────────────┘
 ```
 
 ---
 
-### 7️⃣ Tasks Service Deployment
+## 7️⃣ Hands-on Demo (Visual)
 
+- Edit something visible in `TaskController` (e.g., “Phase 8 – CI/CD Active”).
+- Commit + push to `phase-8`.
+- In GitHub → **Actions**, watch: **build → push → deploy**.
+
+In Azure Portal:
+- **AKS → Workloads → Deployments → tasks-service**
+  - Observe pods restarting automatically.
+- Open the public endpoint and verify the change.
+
+**Pipeline:**  
+`Commit → Build → Push → Deploy → New Pod → Updated App`
+
+---
+
+## ⚠️ Runtime Notes (Timeout Case)
+
+If the workflow fails with:
+```
+error: timed out waiting for the condition
+```
+✅ Check AKS: pods likely took longer than the default timeout. The **deploy actually succeeded**, only the **status wait timed out**.
+
+**Solution:** extend the wait in the workflow:
 ```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: tasks-service
-  labels: { app: tasks-service }
-spec:
-  replicas: 1
-  selector:
-    matchLabels: { app: tasks-service }
-  template:
-    metadata:
-      labels: { app: tasks-service }
-    spec:
-      containers:
-      - name: tasks-service
-        image: phase7registry.azurecr.io/cloud-java-tasksservice:no-eureka-3
-        ports: [ { containerPort: 8081 } ]
-        env:
-        - { name: SPRING_PROFILES_ACTIVE, value: "docker" }
-        - { name: SPRING_CLOUD_CONFIG_URI, value: "http://config-server.default.svc.cluster.local:8888" }
-        - { name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://pgtaskphase7.postgres.database.azure.com:5432/tasksbd?sslmode=require" }
-        - { name: SPRING_DATASOURCE_USERNAME, value: "phase7admin" }
-        - { name: SPRING_DATASOURCE_PASSWORD, value: "Phase7!Pass123" }
-        startupProbe:
-          httpGet: { path: /actuator/health, port: 8081 }
-          initialDelaySeconds: 60
-          periodSeconds: 10
-          failureThreshold: 30
-        readinessProbe:
-          httpGet: { path: /actuator/health, port: 8081 }
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          failureThreshold: 12
-        livenessProbe:
-          httpGet: { path: /actuator/health, port: 8081 }
-          initialDelaySeconds: 120
-          periodSeconds: 20
-          failureThreshold: 6
-        resources:
-          requests: { cpu: "50m", memory: "256Mi" }
-          limits:   { cpu: "500m", memory: "1Gi" }
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: tasks-service
-spec:
-  type: ClusterIP
-  selector: { app: tasks-service }
-  ports:
-    - name: http
-      port: 8081
-      targetPort: 8081
+kubectl -n $NS rollout status deployment/$DEPLOYMENT_NAME --timeout=10m
 ```
 
 ---
 
-### 8️⃣ Ingress (AGIC)
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: tasks-ingress
-  annotations:
-    appgw.ingress.kubernetes.io/health-probe-path: /actuator/health
-spec:
-  ingressClassName: azure-application-gateway
-  rules:
-  - http:
-      paths:
-      - path: /api/tasks
-        pathType: Prefix
-        backend:
-          service:
-            name: tasks-service
-            port: { number: 8081 }
-      - path: /actuator/health
-        pathType: Prefix
-        backend:
-          service:
-            name: tasks-service
-            port: { number: 8081 }
-```
-
----
-
-### 9️⃣ Test & Logs
-
-```bash
-APPGW=$(az network public-ip show -g phase7 -n appw-phase7-ip --query ipAddress -o tsv)
-
-# External tests
-curl -I http://$APPGW/actuator/health
-curl -i http://$APPGW/api/tasks
-
-# Internal tests
-kubectl run curl --rm -it --restart=Never --image=curlimages/curl:8.10.1 -- \
-  curl -sSI http://tasks-service.default.svc.cluster.local:8081/actuator/health
-
-kubectl run curl --rm -it --restart=Never --image=curlimages/curl:8.10.1 -- \
-  curl -i http://tasks-service.default.svc.cluster.local:8081/api/tasks
-
-# Logs
-kubectl logs deploy/tasks-service --tail=200 | grep -iE "ERROR|Exception"
-```
-
----
-
-### 🔍 Notes
-
-- Database: `tasksbd` on `pgtaskphase7` (SSL required)
-- Probes: `/actuator/health` for all
-- Network plugin: **Azure CNI**
-- Ingress class: `azure-application-gateway`
-- Images built for **amd64 + arm64**
-- Config Server shared by services
-
----
-
-### 🧹 Cleanup
-
-```bash
-az group delete -n phase7 --yes --no-wait
-```
-
----
-
-### 📦 Tag this release
-
-```bash
-git add README.md
-git commit -m "docs: Phase 7 AKS deployment guide"
-git tag phase-7
-git push origin main --tags
-```
+**Repo:** `smartlearningci/cloud_java`  
+**Phase:** `phase-8`  
+**Monitoring:** reserved for **Phase 9** (Grafana/Prometheus).

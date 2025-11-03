@@ -69,4 +69,4 @@ jobs:
         run: |
           kubectl -n $NS set image deployment/$DEPLOYMENT_NAME \
             $CONTAINER_NAME=${IMAGE}
-          kubectl -n $NS rollout status deployment/$DEPLOYMENT_NAME --timeout=180s
+          kubectl -n $NS rollout status deployment/$DEPLOYMENT_NAME --timeout=10m

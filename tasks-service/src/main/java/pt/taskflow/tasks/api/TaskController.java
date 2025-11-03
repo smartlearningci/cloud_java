@@ -60,7 +60,7 @@ public class TaskController {
           <head><title>Task Service API</title></head>
           <body style='font-family:Arial; margin:2em;'>
             <h1>✅ Task Service API</h1>
-            <p>Bem-vindo ao <strong>Task Service</strong>!</p>
+            <p>Bem-vindo ao <strong>Task Services</strong>!</p>
             <p>Use os endpoints REST:</p>
             <ul>
               <li>GET /tasks – listar tarefas</li>
